@@ -80,9 +80,14 @@
 .trivox-ad-stack .ad-rotator,.trivox-ad-stack .ad-slot-banner{height:100%}
 .header-ad{overflow:hidden;background:transparent!important}
 .header-ad .ad-rotator__slide,.header-ad .ad-slot-banner{height:100%}
-.home-ad-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:38px 0}
-.home-ad-pair__slot{aspect-ratio:5/2;overflow:hidden;background:#eef1f2;display:grid;place-items:center;color:#a4aaad;font-size:11px;border-radius:3px}
+.home-ad-pair{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(0,1fr);gap:16px;margin:38px 0;height:150px}
+.home-ad-pair__slot{height:150px;overflow:hidden;background:#eef1f2;display:grid;place-items:center;color:#a4aaad;font-size:11px;border-radius:3px}
 .home-ad-pair__slot:has(.ad-rotator),.home-ad-pair__slot:has(.ad-slot-banner){background:transparent}
 .home-ad-pair__slot .ad-rotator,.home-ad-pair__slot .ad-slot-banner,.home-ad-pair__slot .ad-rotator__slide{width:100%;height:100%}
 .ad-slot-banner--halfwide{width:100%;height:100%}
-@media(max-width:620px){.home-ad-pair{grid-template-columns:1fr;gap:12px;margin:28px 0}.home-ad-pair__slot{aspect-ratio:5/2}}
+@media(max-width:620px){.home-ad-pair{grid-template-columns:1.75fr 1fr;gap:10px;margin:28px 0;height:100px}.home-ad-pair__slot{height:100px}}
+
+/* Ajuste final: slots publicitarios têm dimensão fixa; a arte preenche 100% e é recortada dentro do slot. */
+.header-ad,.trivox-ad-stack>div,.home-ad-pair__slot{position:relative;overflow:hidden}
+.header-ad a,.trivox-ad-stack>div>a,.home-ad-pair__slot>a{display:block;width:100%;height:100%}
+.header-ad img,.trivox-ad-stack img,.home-ad-pair__slot img,.header-ad video,.trivox-ad-stack video,.home-ad-pair__slot video{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important}
