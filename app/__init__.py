@@ -85,11 +85,11 @@ def _ensure_schema_updates():
 def _ensure_defaults():
     defaults = [
         ("header_top", "Publicidade (Topo - faixa)"),
-        ("home_top", "Publicidade (Home - faixa no meio)"),
-        ("home_mid", "Publicidade (Final da matéria)"),
-        ("home_bottom", "Publicidade (Home - faixa inferior)"),
-        ("sidebar_1", "Publicidade (Sidebar 1)"),
-        ("sidebar_2", "Publicidade (Sidebar 2)"),
+        ("home_top", "Publicidade (Home - faixa horizontal)"),
+        ("home_mid", "Publicidade (slot legado)"),
+        ("home_bottom", "Publicidade (slot legado)"),
+        ("sidebar_1", "Publicidade (Home lateral grande)"),
+        ("sidebar_2", "Publicidade (Home lateral pequeno)"),
     ]
     for key, name in defaults:
         if not AdSlot.query.filter_by(key=key).first():
@@ -213,7 +213,7 @@ def _auto_sync_loop(app: Flask):
         while True:
             try:
                 sync_categories(client)
-                sync_posts(client, max_pages=50, per_page=app.config["WP_PER_PAGE"])
+                sync_posts(client, max_pages=None, per_page=app.config["WP_PER_PAGE"], download_images=True)
             except Exception:
                 pass
             time.sleep(app.config["AUTO_SYNC_INTERVAL"])

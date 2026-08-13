@@ -134,12 +134,12 @@ def _parse_ad_slot_payload(raw: str | None) -> dict | None:
 
 def _default_slot_layout_meta() -> dict:
     return {
-        'header_top': {'label':'Banner do cabeçalho','hint':'Ao lado da logomarca em todas as páginas','shape':'rectangle','dimensions':'728 × 90 px'},
-        'home_top': {'label':'Banner após o destaque','hint':'Abaixo da manchete principal na home','shape':'wide','dimensions':'728 × 180 px'},
-        'home_bottom': {'label':'Banner central da home','hint':'Entre Últimas Notícias e Mais Lidas','shape':'wide','dimensions':'970 × 180 px'},
-        'home_mid': {'label':'Banner final das matérias','hint':'Após o conteúdo das páginas de notícia','shape':'wide','dimensions':'970 × 180 px'},
-        'sidebar_1': {'label':'Banner lateral interno 1','hint':'Coluna lateral das matérias internas','shape':'square','dimensions':'460 × 320 px'},
-        'sidebar_2': {'label':'Banner lateral interno 2','hint':'Segundo espaço lateral das matérias internas','shape':'square','dimensions':'460 × 320 px'},
+        'header_top': {'label':'Banner do cabeçalho','hint':'Ao lado da logomarca; aparece em todas as páginas públicas','shape':'rectangle','dimensions':'728 × 90 px'},
+        'sidebar_1': {'label':'Banner lateral grande da home','hint':'Primeiro banner ao lado da matéria em destaque','shape':'portrait','dimensions':'300 × 400 px'},
+        'sidebar_2': {'label':'Banner lateral pequeno da home','hint':'Segundo banner ao lado da matéria em destaque','shape':'rectangle','dimensions':'300 × 180 px'},
+        'home_top': {'label':'Banner horizontal da home','hint':'Abaixo do bloco de Últimas notícias','shape':'wide','dimensions':'970 × 180 px'},
+        'home_bottom': {'label':'Slot legado não utilizado','hint':'Mantido apenas para compatibilidade','shape':'wide','dimensions':'970 × 180 px'},
+        'home_mid': {'label':'Slot legado não utilizado','hint':'Mantido apenas para compatibilidade','shape':'wide','dimensions':'970 × 180 px'},
     }
 
 
@@ -1474,7 +1474,7 @@ def ads_editor():
     r = _require_admin()
     if r:
         return r
-    allowed_keys = ('header_top', 'home_top', 'home_bottom', 'home_mid', 'sidebar_1', 'sidebar_2')
+    allowed_keys = ('header_top', 'sidebar_1', 'sidebar_2', 'home_top')
     slots = AdSlot.query.filter(AdSlot.key.in_(allowed_keys)).all()
     order = {key: index for index, key in enumerate(allowed_keys)}
     slots.sort(key=lambda item: order.get(item.key, 999))
@@ -1670,7 +1670,7 @@ def wordpress_sync_page():
     try:
         client = WPClient(current_app.config["WP_BASE_URL"])
         sync_categories(client)
-        sync_posts(client, max_pages=50, per_page=current_app.config["WP_PER_PAGE"], download_images=True)
+        sync_posts(client, max_pages=None, per_page=current_app.config["WP_PER_PAGE"], download_images=True)
         flash("Importação do WordPress concluída com imagens salvas no servidor.", "success")
     except Exception as e:
         db.session.rollback()
@@ -1716,7 +1716,7 @@ def sync_wp_now():
     try:
         client = WPClient(current_app.config["WP_BASE_URL"])
         sync_categories(client)
-        sync_posts(client, max_pages=50, per_page=current_app.config["WP_PER_PAGE"], download_images=True)
+        sync_posts(client, max_pages=None, per_page=current_app.config["WP_PER_PAGE"], download_images=True)
         flash("Sincronização do WordPress concluída.", "success")
     except Exception as e:
         flash(f"Erro ao sincronizar: {e}", "danger")

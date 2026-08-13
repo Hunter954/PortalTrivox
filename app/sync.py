@@ -38,6 +38,30 @@ def _featured_img_from_embed(p: dict) -> str | None:
         return None
     return None
 
+def _author_from_embed(p: dict) -> str | None:
+    try:
+        authors = p.get("_embedded", {}).get("author", [])
+        if authors:
+            return (authors[0].get("name") or "").strip() or None
+    except Exception:
+        pass
+    return None
+
+def _featured_credit_from_embed(p: dict) -> str | None:
+    try:
+        media = p.get("_embedded", {}).get("wp:featuredmedia", [])
+        if not media:
+            return None
+        item = media[0]
+        caption = ((item.get("caption") or {}).get("rendered") or "")
+        caption = bleach.clean(caption, tags=[], strip=True).strip()
+        if caption:
+            return caption[:255]
+        alt = (item.get("alt_text") or "").strip()
+        return alt[:255] if alt else None
+    except Exception:
+        return None
+
 
 def _media_url(relative_path: str) -> str:
     prefix = current_app.config.get("MEDIA_URL_PREFIX", "/media").rstrip("/")
@@ -114,9 +138,14 @@ def sync_categories(client: WPClient):
             slug = c.get("slug") or slugify(c.get("name","cat"))
             cat = Category.query.filter_by(wp_id=c["id"]).first()
             if not cat:
+                # Reaproveita a categoria local de mesmo slug para não duplicar editorias
+                # e para evitar colisão de UNIQUE em instalações com conteúdo inicial.
+                cat = Category.query.filter_by(slug=slug).first()
+            if not cat:
                 cat = Category(wp_id=c["id"], slug=slug, name=c.get("name",""))
                 db.session.add(cat)
             else:
+                cat.wp_id = c["id"]
                 cat.slug = slug
                 cat.name = c.get("name","")
 
@@ -126,9 +155,10 @@ def sync_categories(client: WPClient):
         page += 1
 
 
-def sync_posts(client: WPClient, max_pages: int = 10, per_page: int = 20, download_images: bool = False):
+def sync_posts(client: WPClient, max_pages: int | None = None, per_page: int = 20, download_images: bool = True):
+    """Importa todos os posts publicados quando max_pages=None e localiza imagens em MEDIA_ROOT."""
     page = 1
-    while page <= max_pages:
+    while max_pages is None or page <= max_pages:
         data, headers = client.list_posts(page=page, per_page=per_page)
         if not data:
             break
@@ -140,6 +170,9 @@ def sync_posts(client: WPClient, max_pages: int = 10, per_page: int = 20, downlo
             excerpt = (p.get("excerpt") or {}).get("rendered") or ""
             content = (p.get("content") or {}).get("rendered") or ""
             featured = _featured_img_from_embed(p)
+            featured_credit = _featured_credit_from_embed(p)
+            author_name = _author_from_embed(p) or "Redação Trivox"
+            source_url = (p.get("link") or "").strip() or None
             date_str = p.get("date_gmt") or p.get("date")
             mod_str = p.get("modified_gmt") or p.get("modified")
             published_at = datetime.fromisoformat(date_str.replace("Z","")) if date_str else None
@@ -157,14 +190,25 @@ def sync_posts(client: WPClient, max_pages: int = 10, per_page: int = 20, downlo
 
             post = Post.query.filter_by(wp_id=wp_id).first()
             if not post:
-                post = Post(wp_id=wp_id, source="wp", slug=slug, title=title)
+                # Se um conteúdo inicial/local já usa o slug, preserva-o e cria um slug
+                # estável para o item importado.
+                desired_slug = slug
+                conflict = Post.query.filter_by(slug=desired_slug).first()
+                if conflict:
+                    desired_slug = f"{desired_slug}-{wp_id}"[:220]
+                post = Post(wp_id=wp_id, source="wp", slug=desired_slug, title=title)
                 db.session.add(post)
+            else:
+                desired_slug = post.slug
 
             post.title = title
-            post.slug = slug
+            post.slug = desired_slug
             post.excerpt = excerpt_safe
             post.content_html = content_safe
             post.featured_image = featured
+            post.featured_image_credit = featured_credit
+            post.author_name = author_name
+            post.source_url = source_url
             post.published_at = published_at
             post.updated_at = updated_at
 
