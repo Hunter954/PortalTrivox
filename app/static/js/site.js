@@ -23,19 +23,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const menuButton = document.querySelector('.nav-toggle');
   const navLinks = document.querySelector('.nav-links');
 
+  const setMenuState = (open) => {
+    if (!menuButton || !navLinks) return;
+    navLinks.classList.toggle('is-open', open);
+    document.body.classList.toggle('menu-open', open);
+    menuButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+    menuButton.setAttribute('aria-label', open ? 'Fechar menu' : 'Abrir menu');
+    const icon = menuButton.querySelector('i');
+    if (icon) icon.className = open ? 'bi bi-x-lg' : 'bi bi-list';
+  };
+
   if (menuButton && navLinks) {
+    menuButton.setAttribute('aria-expanded', 'false');
     menuButton.addEventListener('click', () => {
-      const isOpen = navLinks.style.display === 'flex';
-      navLinks.style.display = isOpen ? 'none' : 'flex';
-      navLinks.style.position = 'absolute';
-      navLinks.style.top = '48px';
-      navLinks.style.left = '0';
-      navLinks.style.right = '0';
-      navLinks.style.flexDirection = 'column';
-      navLinks.style.alignItems = 'flex-start';
-      navLinks.style.padding = '18px';
-      navLinks.style.background = 'var(--surface)';
-      navLinks.style.borderBottom = '1px solid var(--line)';
+      setMenuState(!navLinks.classList.contains('is-open'));
+    });
+    navLinks.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => setMenuState(false)));
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setMenuState(false);
+    });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 620) setMenuState(false);
     });
   }
 
