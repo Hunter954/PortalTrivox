@@ -135,10 +135,11 @@ def _parse_ad_slot_payload(raw: str | None) -> dict | None:
 
 def _default_slot_layout_meta() -> dict:
     return {
-        'header_top': {'label':'Banner do cabeçalho','hint':'Ao lado da logomarca em todas as páginas. O portal adapta artes horizontais sem alterar a altura do cabeçalho.','shape':'rectangle','dimensions':'728 × 90 px (aceita horizontais)'},
-        'home_top': {'label':'Banner horizontal da home','hint':'Abaixo de Últimas Notícias. A altura do bloco fica fixa para não empurrar as categorias.','shape':'wide','dimensions':'970 × 180 px (aceita 500×200 / 460×320)'},
-        'sidebar_1': {'label':'Banner lateral grande da home','hint':'Primeiro banner à direita do destaque. Aceita artes verticais e quadradas sem mudar o alinhamento da home.','shape':'tall','dimensions':'300 × 450 / 300 × 600 px'},
-        'sidebar_2': {'label':'Banner lateral menor da home','hint':'Segundo banner à direita do destaque. Aceita 300×250 e formatos próximos.','shape':'rectangle','dimensions':'300 × 250 px'},
+        'header_top': {'label':'Banner do cabeçalho','hint':'Ao lado da logomarca em todas as páginas','shape':'rectangle','dimensions':'728 × 90 px'},
+        'home_top_left': {'label':'Banner horizontal esquerdo da home','hint':'Abaixo de Últimas Notícias, lado esquerdo','shape':'halfwide','dimensions':'500 × 200 px'},
+        'home_top_right': {'label':'Banner horizontal direito da home','hint':'Abaixo de Últimas Notícias, lado direito','shape':'halfwide','dimensions':'500 × 200 px'},
+        'sidebar_1': {'label':'Banner lateral grande da home','hint':'Ao lado direito da matéria em destaque; aproximadamente 2x a altura do segundo banner','shape':'square','dimensions':'300 × 300 px'},
+        'sidebar_2': {'label':'Banner lateral menor da home','hint':'Abaixo do banner lateral grande','shape':'rectangle','dimensions':'300 × 140 px'},
     }
 
 
@@ -1498,6 +1499,10 @@ def settings_page():
         selected_home_category_ids = [int(item) for item in selected_home_category_ids][:3]
     except Exception:
         selected_home_category_ids = []
+    try:
+        selected_dark_category_id = int((_setting('home_dark_category_id', '') or '').strip())
+    except (TypeError, ValueError):
+        selected_dark_category_id = None
     return render_template(
         "admin/settings.html",
         live_embed=_setting("live_embed_html", ""),
@@ -1520,6 +1525,7 @@ def settings_page():
         all_categories=Category.query.order_by(Category.name.asc()).all(),
         selected_top_menu_ids=selected_top_menu_ids,
         selected_home_category_ids=selected_home_category_ids,
+        selected_dark_category_id=selected_dark_category_id,
         **_common_admin_context("settings"),
     )
 
@@ -1655,6 +1661,15 @@ def save_logo():
         if category_id not in selected_home_category_ids:
             selected_home_category_ids.append(category_id)
     _save_setting('home_featured_category_ids', json.dumps(selected_home_category_ids[:3], ensure_ascii=False))
+    raw_dark_category_id = (request.form.get('home_dark_category_id', '') or '').strip()
+    try:
+        dark_category_id = int(raw_dark_category_id)
+    except (TypeError, ValueError):
+        dark_category_id = None
+    if dark_category_id and Category.query.get(dark_category_id):
+        _save_setting('home_dark_category_id', str(dark_category_id))
+    else:
+        _save_setting('home_dark_category_id', '')
     _save_setting("logo_url", logo_url)
     _save_setting("favicon_url", favicon_url)
     _save_setting("default_share_image", default_share_image)
@@ -1675,7 +1690,7 @@ def ads_editor():
     r = _require_admin()
     if r:
         return r
-    allowed_keys = ('header_top', 'sidebar_1', 'sidebar_2', 'home_top')
+    allowed_keys = ('header_top', 'sidebar_1', 'sidebar_2', 'home_top_left', 'home_top_right')
     slots = AdSlot.query.filter(AdSlot.key.in_(allowed_keys)).all()
     order = {key: index for index, key in enumerate(allowed_keys)}
     slots.sort(key=lambda item: order.get(item.key, 999))

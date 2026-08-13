@@ -33,12 +33,14 @@ def _parse_ad_payload(raw: str | None) -> dict | None:
 
 
 AD_SLOT_CLASSNAMES = {
-    "header_top": "ad-slot-banner ad-slot-banner--header",
-    "home_top": "ad-slot-banner ad-slot-banner--home-wide",
-    "home_mid": "ad-slot-banner ad-slot-banner--home-wide",
-    "home_bottom": "ad-slot-banner ad-slot-banner--home-wide",
-    "sidebar_1": "ad-slot-banner ad-slot-banner--sidebar-large",
-    "sidebar_2": "ad-slot-banner ad-slot-banner--sidebar-small",
+    "header_top": "ad-slot-banner ad-slot-banner--landscape",
+    "home_top": "ad-slot-banner ad-slot-banner--wide",
+    "home_top_left": "ad-slot-banner ad-slot-banner--halfwide",
+    "home_top_right": "ad-slot-banner ad-slot-banner--halfwide",
+    "home_mid": "ad-slot-banner ad-slot-banner--wide",
+    "home_bottom": "ad-slot-banner ad-slot-banner--wide",
+    "sidebar_1": "ad-slot-banner ad-slot-banner--square",
+    "sidebar_2": "ad-slot-banner ad-slot-banner--square",
 }
 
 
@@ -70,12 +72,10 @@ def _render_ad_from_payload(slot_key: str, payload: dict) -> str:
     slides_html = []
     for idx, item in enumerate(clean_banners):
         display = 'block' if idx == 0 else 'none'
-        image_url = escape(item["image"], quote=True)
         slides_html.append(
             f'<a href="{escape(item["link"], quote=True)}" target="_blank" rel="noopener sponsored" '
             f'class="ad-rotator__slide" data-ad-slide style="display:{display};">'
-            f'<span class="ad-rotator__backdrop" aria-hidden="true" style="background-image:url(&quot;{image_url}&quot;)"></span>'
-            f'<img src="{image_url}" alt="{escape(item["title"])}" loading="lazy"></a>'
+            f'<img src="{escape(item["image"], quote=True)}" alt="{escape(item["title"])}" loading="lazy"></a>'
         )
     controls = ''
     script = ''
@@ -623,15 +623,29 @@ def home():
                  .limit(6).all())
         home_category_columns.append({"category": category_item, "posts": posts})
 
-    police_category = (Category.query.filter(Category.slug.in_(["policial", "policia", "polícia"])).first())
-    if not police_category:
-        police_category = Category.query.filter(or_(Category.name.ilike("%polic%"), Category.slug.ilike("%polic%"))).first()
-    police_posts = []
-    if police_category:
-        police_posts = (_published_posts_query().join(Post.categories)
-                        .filter(Category.id == police_category.id)
-                        .order_by(desc(Post.published_at), desc(Post.id))
-                        .limit(4).all())
+    # Bloco editorial escuro da home: categoria escolhida pelo administrador.
+    dark_category = None
+    raw_dark_category_id = (_setting("home_dark_category_id", "") or "").strip()
+    try:
+        dark_category_id = int(raw_dark_category_id)
+    except (TypeError, ValueError):
+        dark_category_id = None
+    if dark_category_id:
+        dark_category = Category.query.get(dark_category_id)
+    # Mantém Policial como fallback para instalações antigas que ainda não escolheram uma categoria.
+    if not dark_category:
+        dark_category = Category.query.filter(Category.slug.in_(["policial", "policia", "polícia"])).first()
+    if not dark_category:
+        dark_category = Category.query.filter(or_(Category.name.ilike("%polic%"), Category.slug.ilike("%polic%"))).first()
+    if not dark_category:
+        dark_category = Category.query.order_by(Category.name.asc()).first()
+
+    dark_posts = []
+    if dark_category:
+        dark_posts = (_published_posts_query().join(Post.categories)
+                      .filter(Category.id == dark_category.id)
+                      .order_by(desc(Post.published_at), desc(Post.id))
+                      .limit(4).all())
 
     # Blocos editoriais exibidos abaixo dos destaques da home. Priorizamos as
     # categorias escolhidas para o menu e completamos com as demais editorias.
@@ -711,12 +725,13 @@ def home():
         selected_cat_slug=selected_cat_slug,
         category_sections=category_sections,
         home_category_columns=home_category_columns,
-        police_category=police_category,
-        police_posts=police_posts,
+        dark_category=dark_category,
+        dark_posts=dark_posts,
         live_title=live_title,
         live_embed_html=live_embed_html,
         ad_header=_get_ad("header_top"),
-        ad_home_middle=_get_ad("home_top"),
+        ad_home_left=_get_ad("home_top_left"),
+        ad_home_right=_get_ad("home_top_right"),
         ad_article_end=_get_ad("home_mid"),
         ad_home_bottom=_get_ad("home_bottom"),
         ad_sidebar_1=_get_ad("sidebar_1"),

@@ -85,7 +85,9 @@ def _ensure_schema_updates():
 def _ensure_defaults():
     defaults = [
         ("header_top", "Publicidade (Topo - faixa)"),
-        ("home_top", "Publicidade (Home - faixa horizontal)"),
+        ("home_top", "Publicidade (Home - faixa horizontal legado)"),
+        ("home_top_left", "Publicidade (Home - faixa esquerda)"),
+        ("home_top_right", "Publicidade (Home - faixa direita)"),
         ("home_mid", "Publicidade (slot legado)"),
         ("home_bottom", "Publicidade (slot legado)"),
         ("sidebar_1", "Publicidade (Home lateral grande)"),
@@ -94,6 +96,14 @@ def _ensure_defaults():
     for key, name in defaults:
         if not AdSlot.query.filter_by(key=key).first():
             db.session.add(AdSlot(key=key, name=name, html="", is_active=True))
+
+    # Migração suave: preserva o banner horizontal antigo no novo slot esquerdo.
+    db.session.flush()
+    legacy_home = AdSlot.query.filter_by(key="home_top").first()
+    left_home = AdSlot.query.filter_by(key="home_top_left").first()
+    if legacy_home and left_home and (legacy_home.html or "").strip() and not (left_home.html or "").strip():
+        left_home.html = legacy_home.html
+        left_home.is_active = legacy_home.is_active
 
     for key, value in [
         ("live_embed_html", ""),
