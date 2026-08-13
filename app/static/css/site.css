@@ -499,3 +499,31 @@
     object-position:center center!important;
   }
 }
+
+/* Portal Trivox — rodapé institucional 13/08/2026 */
+.footer-grid--institutional{grid-template-columns:1.35fr 1.15fr 1.45fr .9fr;gap:44px;align-items:start}
+.footer-grid--institutional>div{min-width:0}
+.footer-grid--institutional .footer-brand-block{display:block}
+.footer-grid--institutional .footer-info-block{display:flex;flex-direction:column;gap:8px}
+.footer-grid--institutional h4{font-size:10px;letter-spacing:.08em;color:#fff;margin:0 0 7px}
+.footer-grid--institutional .footer-info-line{display:flex;flex-direction:column;gap:4px;margin:0;max-width:none;font-size:10px;line-height:1.55;color:#c1c8ca}
+.footer-grid--institutional .footer-info-line strong{font-size:9px;line-height:1.35;text-transform:uppercase;letter-spacing:.045em;color:#7f9198}
+.footer-grid--institutional .footer-info-line span{display:block}
+.footer-grid--institutional .footer-info-line a{font-size:10px;line-height:1.5;color:#fff;word-break:break-word}
+.footer-grid--institutional .footer-info-line a:hover,.footer-grid--institutional .footer-institutional-block>a:hover{color:#66b8c6}
+.footer-grid--institutional .footer-institutional-block>a{font-size:9px;color:#e7eaeb;line-height:1.5}
+@media(max-width:900px){
+  .footer-grid--institutional{grid-template-columns:1.3fr 1fr 1.3fr!important;gap:32px}
+  .footer-grid--institutional .footer-institutional-block{grid-column:2/4;display:flex!important;flex-direction:row!important;flex-wrap:wrap;gap:8px 18px!important}
+  .footer-grid--institutional .footer-institutional-block h4{flex-basis:100%}
+}
+@media(max-width:620px){
+  .site-footer{padding-top:30px}
+  .footer-grid--institutional{grid-template-columns:1fr!important;gap:25px!important}
+  .footer-grid--institutional>div,.footer-grid--institutional .footer-institutional-block{grid-column:auto!important;display:flex!important;flex-direction:column!important;align-items:flex-start!important;gap:7px!important}
+  .footer-grid--institutional .footer-brand-block{display:block!important}
+  .footer-grid--institutional .footer-info-line{font-size:11px;line-height:1.6}
+  .footer-grid--institutional .footer-info-line a{font-size:11px}
+  .footer-grid--institutional .footer-info-line strong{font-size:9px}
+  .footer-grid--institutional h4{font-size:10px;margin-bottom:5px}
+}
