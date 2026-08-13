@@ -320,3 +320,143 @@
   .popular-column article img{width:104px!important;height:68px!important}
   .popular-column h3{font-size:12px!important;line-height:1.18!important}
 }
+
+/* Portal Trivox — correção publicidade 13/08/2026
+   Desktop: coluna lateral fica travada na mesma altura do destaque.
+   Mobile: cada slot mostra SOMENTE um banner por vez; a rotação continua sendo controlada
+   pelo intervalo configurado no admin. */
+@media (min-width:901px){
+  .trivox-lead{align-items:start}
+  .trivox-hero,
+  .trivox-hero__image,
+  .trivox-ad-stack{
+    height:510px!important;
+    min-height:510px!important;
+    max-height:510px!important;
+  }
+  .trivox-ad-stack{
+    display:grid!important;
+    grid-template-rows:minmax(0,2fr) minmax(0,1fr)!important;
+    gap:16px!important;
+    overflow:hidden!important;
+  }
+  .trivox-ad-stack>div{
+    width:100%!important;
+    min-width:0!important;
+    height:100%!important;
+    min-height:0!important;
+    max-height:100%!important;
+    overflow:hidden!important;
+    position:relative!important;
+    contain:size layout paint;
+  }
+  .trivox-ad-stack>div>.ad-rotator,
+  .trivox-ad-stack>div>.ad-slot-banner,
+  .trivox-ad-stack>div>a,
+  .trivox-ad-stack .ad-slot-banner{
+    width:100%!important;
+    height:100%!important;
+    min-height:0!important;
+    max-height:100%!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+  }
+  .trivox-ad-stack .ad-rotator{position:relative!important}
+  .trivox-ad-stack .ad-rotator__slide{
+    position:absolute!important;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    min-height:0!important;
+    max-height:100%!important;
+    overflow:hidden!important;
+  }
+  .trivox-ad-stack img,
+  .trivox-ad-stack picture img,
+  .trivox-ad-stack video{
+    width:100%!important;
+    height:100%!important;
+    min-width:100%!important;
+    min-height:100%!important;
+    max-width:none!important;
+    max-height:none!important;
+    object-fit:cover!important;
+    object-position:center center!important;
+  }
+}
+
+@media (max-width:620px){
+  /* Mantém cada publicidade como um único slot. Não transforme os slides do rotator em blocos empilhados. */
+  .trivox-ad-stack .ad-rotator,
+  .home-ad-pair__slot .ad-rotator{
+    position:relative!important;
+    width:100%!important;
+    overflow:hidden!important;
+  }
+  .trivox-ad-stack .ad-rotator__slide,
+  .home-ad-pair__slot .ad-rotator__slide{
+    position:absolute!important;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    overflow:hidden!important;
+    /* não definir display aqui: o inline style/JS do rotator decide qual slide está visível */
+  }
+
+  /* Laterais: um slot por linha, largura total útil. A altura vem da proporção do slot,
+     e somente o banner ativo é exibido. */
+  .trivox-ad-stack{
+    display:flex!important;
+    flex-direction:column!important;
+    width:calc(100% - 24px)!important;
+    margin:4px 12px 8px!important;
+    gap:12px!important;
+    height:auto!important;
+  }
+  .trivox-ad-stack>div{
+    width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    overflow:hidden!important;
+    background:transparent!important;
+  }
+  .trivox-ad-stack>div .ad-rotator,
+  .trivox-ad-stack>div .ad-slot-banner,
+  .trivox-ad-stack>div>a{
+    aspect-ratio:500/200;
+    height:auto!important;
+  }
+  .trivox-ad-stack .ad-rotator__slide,
+  .trivox-ad-stack .ad-slot-banner img,
+  .trivox-ad-stack .ad-rotator__slide img,
+  .trivox-ad-stack>div>a>img,
+  .trivox-ad-stack video{
+    width:100%!important;
+    height:100%!important;
+    max-width:none!important;
+    max-height:none!important;
+    object-fit:cover!important;
+    object-position:center!important;
+  }
+
+  /* Banners abaixo de Últimas Notícias continuam um abaixo do outro no mobile,
+     sem exibir simultaneamente todos os slides cadastrados no mesmo slot. */
+  .home-ad-pair__slot .ad-rotator,
+  .home-ad-pair__slot .ad-slot-banner,
+  .home-ad-pair__slot>a{
+    aspect-ratio:500/200;
+    height:auto!important;
+  }
+  .home-ad-pair__slot .ad-rotator__slide img,
+  .home-ad-pair__slot .ad-slot-banner img,
+  .home-ad-pair__slot>a>img,
+  .home-ad-pair__slot video{
+    width:100%!important;
+    height:100%!important;
+    max-width:none!important;
+    max-height:none!important;
+    object-fit:cover!important;
+    object-position:center!important;
+  }
+}
