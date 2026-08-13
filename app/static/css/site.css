@@ -460,3 +460,42 @@
     object-position:center!important;
   }
 }
+
+/* Portal Trivox — correção final mobile dos anúncios + rotador robusto 13/08/2026 */
+.ad-rotator__slide[hidden]{display:none!important}
+
+@media (max-width:620px){
+  /* Os dois anúncios que no desktop ficam à direita do destaque passam para baixo dele.
+     Mantêm a MESMA proporção relativa aprovada no desktop: o primeiro é alto (2/3 da
+     coluna) e o segundo é menor (1/3), ambos ocupando toda a largura útil do celular. */
+  .trivox-ad-stack>div:first-child .ad-rotator,
+  .trivox-ad-stack>div:first-child .ad-slot-banner,
+  .trivox-ad-stack>div:first-child>a{
+    aspect-ratio:3/4!important;
+    width:100%!important;
+    height:auto!important;
+  }
+  .trivox-ad-stack>div:last-child .ad-rotator,
+  .trivox-ad-stack>div:last-child .ad-slot-banner,
+  .trivox-ad-stack>div:last-child>a{
+    aspect-ratio:3/2!important;
+    width:100%!important;
+    height:auto!important;
+  }
+
+  .trivox-ad-stack .ad-rotator__slide{
+    position:absolute!important;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+  }
+  .trivox-ad-stack .ad-rotator__slide img,
+  .trivox-ad-stack .ad-slot-banner img,
+  .trivox-ad-stack>div>a>img,
+  .trivox-ad-stack video{
+    width:100%!important;
+    height:100%!important;
+    object-fit:cover!important;
+    object-position:center center!important;
+  }
+}

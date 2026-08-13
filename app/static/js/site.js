@@ -125,3 +125,51 @@ document.addEventListener('DOMContentLoaded', () => {
   prev.addEventListener('click', () => goTo(currentIndex() - 1));
   next.addEventListener('click', () => goTo(currentIndex() + 1));
 });
+
+// Rotação centralizada dos banners de publicidade.
+// Respeita o intervalo (em segundos) definido em Admin > Publicidade e funciona
+// da mesma forma em desktop e mobile, sem exibir todos os banners ao mesmo tempo.
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-ad-rotator]').forEach((rotator) => {
+    if (rotator.dataset.adInitialized === '1') return;
+    rotator.dataset.adInitialized = '1';
+
+    const slides = Array.from(rotator.querySelectorAll('[data-ad-slide]'));
+    if (!slides.length) return;
+
+    let index = 0;
+    let timer = null;
+    const parsedInterval = Number.parseInt(rotator.dataset.adInterval || '5000', 10);
+    const interval = Number.isFinite(parsedInterval)
+      ? Math.max(1000, Math.min(parsedInterval, 120000))
+      : 5000;
+
+    const show = (nextIndex) => {
+      index = ((nextIndex % slides.length) + slides.length) % slides.length;
+      slides.forEach((slide, slideIndex) => {
+        const active = slideIndex === index;
+        slide.hidden = !active;
+        slide.setAttribute('aria-hidden', active ? 'false' : 'true');
+      });
+    };
+
+    const stop = () => {
+      if (timer) window.clearInterval(timer);
+      timer = null;
+    };
+
+    const start = () => {
+      stop();
+      if (slides.length < 2 || document.hidden) return;
+      timer = window.setInterval(() => show(index + 1), interval);
+    };
+
+    show(0);
+    start();
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stop();
+      else start();
+    });
+  });
+});

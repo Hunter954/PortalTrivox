@@ -67,31 +67,23 @@ def _render_ad_from_payload(slot_key: str, payload: dict) -> str:
     except Exception:
         seconds = 5
 
-    slot_id = re.sub(r'[^a-z0-9_-]+', '-', (slot_key or 'ad').lower())
-    wrapper_class = AD_SLOT_CLASSNAMES.get(slot_key, 'ad-slot-banner ad-slot-banner--wide')
+    wrapper_class = AD_SLOT_CLASSNAMES.get(slot_key, "ad-slot-banner ad-slot-banner--wide")
     slides_html = []
     for idx, item in enumerate(clean_banners):
-        display = 'block' if idx == 0 else 'none'
+        hidden = "" if idx == 0 else " hidden"
+        aria_hidden = "false" if idx == 0 else "true"
         slides_html.append(
             f'<a href="{escape(item["link"], quote=True)}" target="_blank" rel="noopener sponsored" '
-            f'class="ad-rotator__slide" data-ad-slide style="display:{display};">'
+            f'class="ad-rotator__slide" data-ad-slide aria-hidden="{aria_hidden}"{hidden}>'
             f'<img src="{escape(item["image"], quote=True)}" alt="{escape(item["title"])}" loading="lazy"></a>'
         )
-    controls = ''
-    script = ''
-    if len(clean_banners) > 1:
-        interval_ms = seconds * 1000
-        script = (
-            '<script>(function(){'
-            f'const root=document.getElementById("ad-rotator-{slot_id}");if(!root){{return;}}'
-            'const slides=[...root.querySelectorAll("[data-ad-slide]")];'
-            'if(slides.length<2){return;}let index=0;'
-            'const show=(i)=>{index=i;slides.forEach((slide,n)=>{slide.style.display=n===i?"block":"none";});};'
-            ''
-            f'setInterval(()=>show((index+1)%slides.length),{interval_ms});'
-            '})();</script>'
-        )
-    return f'<div class="ad-rotator {wrapper_class}" id="ad-rotator-{slot_id}">{"".join(slides_html)}{controls}</div>{script}'
+
+    # A rotação é inicializada pelo site.js. Isso evita depender de scripts inline
+    # e mantém o intervalo configurado no admin em desktop e mobile.
+    return (
+        f'<div class="ad-rotator {wrapper_class}" data-ad-rotator '
+        f'data-ad-interval="{seconds * 1000}">{"".join(slides_html)}</div>'
+    )
 
 
 def _get_ad(key: str) -> str:
