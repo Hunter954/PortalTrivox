@@ -1,7 +1,17 @@
-{% extends "base.html" %}{% block content %}
-<div class="article-layout"><article class="article-main"><a class="article-kicker" href="{{ url_for('site.category',slug=post.categories[0].slug) if post.categories else '#' }}">{{ post.categories[0].name if post.categories else 'Notícias' }}</a><h1>{{ post.title|safe }}</h1>{% if post.excerpt %}<p class="article-deck">{{ post.excerpt|safe }}</p>{% endif %}
-<div class="article-info"><div class="article-author"><span class="avatar">{{ (post.author_name or 'R')[0] }}</span><div><b>{{ post.author_name or 'Redação Trivox' }}</b><small>{{ format_date_br(post.published_at) }} • 4 min de leitura</small></div></div><div class="article-share"><a href="https://www.facebook.com/sharer/sharer.php?u={{ meta_url|urlencode }}" target="_blank"><i class="bi bi-facebook"></i></a><a href="https://twitter.com/intent/tweet?url={{ meta_url|urlencode }}&text={{ post.title|striptags|urlencode }}" target="_blank"><i class="bi bi-twitter-x"></i></a><a href="https://wa.me/?text={{ (post.title|striptags ~ ' ' ~ meta_url)|urlencode }}" target="_blank"><i class="bi bi-whatsapp"></i></a></div></div>
-{% if post.featured_image %}<figure class="article-cover"><img src="{{ post.featured_image }}" alt="{{ post.title|striptags }}"><figcaption>Foto: {{ post.featured_image_credit or 'Divulgação' }}</figcaption></figure>{% endif %}<div class="article-content">{{ post.content_html|safe }}</div><div class="wide-ad article-end-ad">{{ ad_article_end|safe if ad_article_end else '<span>PUBLICIDADE • 970 × 180 px</span>'|safe }}</div>
-{% if related_posts %}<section class="related"><div class="section-title section-title--row"><h2>Mais notícias</h2></div><div class="latest-grid">{% for p in related_posts[:3] %}<article class="news-card"><a href="{{ url_for('site.post',slug=p.slug) }}"><img src="{{ p.featured_image or '' }}"><div class="source-line"><span class="source-dot"></span>{{ p.author_name or 'Trivox' }}</div><h3>{{ display_post_title(p,limit=85) }}</h3><small>{{ p.categories[0].name if p.categories else 'Notícias' }} • 4 min</small></a></article>{% endfor %}</div></section>{% endif %}</article>
-<aside class="article-sidebar"><div class="sidebar-ad">{{ ad_sidebar_1|safe if ad_sidebar_1 else '<span>PUBLICIDADE • 460 × 320 px</span>'|safe }}</div><div class="sidebar-ad">{{ ad_sidebar_2|safe if ad_sidebar_2 else '<span>PUBLICIDADE • 460 × 320 px</span>'|safe }}</div></aside></div>
+{% extends "base.html" %}
+{% block content %}
+<article class="article-page">
+  <header class="article-header">
+    <a class="article-kicker" href="{{ url_for('site.category',slug=post.categories[0].slug) if post.categories else '#' }}">{{ post.categories[0].name if post.categories else 'Notícias' }}</a>
+    <h1>{{ post.title|safe }}</h1>
+    {% if post.excerpt %}<p class="article-deck">{{ post.excerpt|safe }}</p>{% endif %}
+    <div class="article-info">
+      <div class="article-author"><span class="avatar">{{ (post.author_name or 'R')[0] }}</span><div><b>{{ post.author_name or 'Redação Trivox' }}</b><small>{{ format_date_br(post.published_at) }} • 4 min de leitura</small></div></div>
+      <div class="article-share"><a href="https://www.facebook.com/sharer/sharer.php?u={{ meta_url|urlencode }}" target="_blank" aria-label="Compartilhar no Facebook"><i class="bi bi-facebook"></i></a><a href="https://twitter.com/intent/tweet?url={{ meta_url|urlencode }}&text={{ post.title|striptags|urlencode }}" target="_blank" aria-label="Compartilhar no X"><i class="bi bi-twitter-x"></i></a><a href="https://wa.me/?text={{ (post.title|striptags ~ ' ' ~ meta_url)|urlencode }}" target="_blank" aria-label="Compartilhar no WhatsApp"><i class="bi bi-whatsapp"></i></a></div>
+    </div>
+  </header>
+  {% if post.featured_image %}<figure class="article-cover"><img src="{{ post.featured_image }}" alt="{{ post.title|striptags }}"><figcaption>Foto: {{ post.featured_image_credit or 'Divulgação' }}</figcaption></figure>{% endif %}
+  <div class="article-content">{{ post.content_html|safe }}</div>
+  {% if related_posts %}<section class="related"><div class="section-title section-title--row"><h2>Mais notícias</h2></div><div class="latest-grid">{% for p in related_posts[:3] %}<article class="news-card"><a href="{{ url_for('site.post',slug=p.slug) }}"><img src="{{ p.featured_image or '' }}"><div class="source-line"><span class="source-dot"></span>{{ p.author_name or 'Trivox' }}</div><h3>{{ display_post_title(p,limit=85) }}</h3><small>{{ p.categories[0].name if p.categories else 'Notícias' }} • 4 min</small></a></article>{% endfor %}</div></section>{% endif %}
+</article>
 {% endblock %}

@@ -58,6 +58,29 @@
     </div>
   </section>
 
+  <section class="panel-card mt-4">
+    <div class="panel-head">
+      <div>
+        <h2>Categorias em destaque na home</h2>
+        <p>Escolha as três categorias que aparecem nas três colunas logo abaixo da publicidade principal.</p>
+      </div>
+    </div>
+    <div class="row g-3">
+      {% for position in range(3) %}
+      <div class="col-md-4">
+        <label class="form-label">Coluna {{ position + 1 }}</label>
+        <select class="form-select" name="home_category_{{ position + 1 }}">
+          <option value="">Selecionar categoria</option>
+          {% for category in all_categories %}
+          <option value="{{ category.id }}" {% if selected_home_category_ids|length > position and selected_home_category_ids[position] == category.id %}selected{% endif %}>{{ category.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="alert alert-light border mt-3 mb-0 small">O bloco escuro abaixo usa automaticamente a categoria <strong>Policial/Polícia</strong>.</div>
+  </section>
+
   <div class="d-flex justify-content-end mt-3">
     <button class="btn btn-dark" type="submit">Salvar identidade, SEO, compartilhamento e menu</button>
   </div>

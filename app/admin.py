@@ -1292,6 +1292,11 @@ def settings_page():
     if r:
         return r
     selected_top_menu_ids = _selected_top_menu_category_ids()
+    selected_home_category_ids = _setting_json('home_featured_category_ids', [])
+    try:
+        selected_home_category_ids = [int(item) for item in selected_home_category_ids][:3]
+    except Exception:
+        selected_home_category_ids = []
     return render_template(
         "admin/settings.html",
         live_embed=_setting("live_embed_html", ""),
@@ -1313,6 +1318,7 @@ def settings_page():
         site_keywords=_setting("site_keywords", ""),
         all_categories=Category.query.order_by(Category.name.asc()).all(),
         selected_top_menu_ids=selected_top_menu_ids,
+        selected_home_category_ids=selected_home_category_ids,
         **_common_admin_context("settings"),
     )
 
@@ -1438,6 +1444,16 @@ def save_logo():
         except Exception:
             continue
     _save_setting('top_menu_category_ids', json.dumps(selected_top_menu_ids, ensure_ascii=False))
+    selected_home_category_ids = []
+    for field_name in ('home_category_1', 'home_category_2', 'home_category_3'):
+        raw_id = (request.form.get(field_name, '') or '').strip()
+        try:
+            category_id = int(raw_id)
+        except Exception:
+            continue
+        if category_id not in selected_home_category_ids:
+            selected_home_category_ids.append(category_id)
+    _save_setting('home_featured_category_ids', json.dumps(selected_home_category_ids[:3], ensure_ascii=False))
     _save_setting("logo_url", logo_url)
     _save_setting("favicon_url", favicon_url)
     _save_setting("default_share_image", default_share_image)

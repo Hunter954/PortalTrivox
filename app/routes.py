@@ -589,6 +589,48 @@ def home():
     selected_cat_slug = (request.args.get("cat") or "").strip() or "cidade"
     selected_cat, selected_posts = cat_posts(selected_cat_slug, 8)
 
+    # As três colunas editoriais da home são configuráveis pelo admin.
+    configured_home_category_ids = _setting_json("home_featured_category_ids", [])
+    try:
+        configured_home_category_ids = [int(item) for item in configured_home_category_ids][:3]
+    except Exception:
+        configured_home_category_ids = []
+
+    configured_home_categories = []
+    if configured_home_category_ids:
+        found = Category.query.filter(Category.id.in_(configured_home_category_ids)).all()
+        by_id = {item.id: item for item in found}
+        configured_home_categories = [by_id[item] for item in configured_home_category_ids if item in by_id]
+
+    if len(configured_home_categories) < 3:
+        fallback_categories = Category.query.order_by(Category.name.asc()).all()
+        used_category_ids = {item.id for item in configured_home_categories}
+        for item in fallback_categories:
+            if item.id in used_category_ids:
+                continue
+            configured_home_categories.append(item)
+            used_category_ids.add(item.id)
+            if len(configured_home_categories) >= 3:
+                break
+
+    home_category_columns = []
+    for category_item in configured_home_categories[:3]:
+        posts = (_published_posts_query().join(Post.categories)
+                 .filter(Category.id == category_item.id)
+                 .order_by(desc(Post.published_at), desc(Post.id))
+                 .limit(6).all())
+        home_category_columns.append({"category": category_item, "posts": posts})
+
+    police_category = (Category.query.filter(Category.slug.in_(["policial", "policia", "polícia"])).first())
+    if not police_category:
+        police_category = Category.query.filter(or_(Category.name.ilike("%polic%"), Category.slug.ilike("%polic%"))).first()
+    police_posts = []
+    if police_category:
+        police_posts = (_published_posts_query().join(Post.categories)
+                        .filter(Category.id == police_category.id)
+                        .order_by(desc(Post.published_at), desc(Post.id))
+                        .limit(4).all())
+
     # Blocos editoriais exibidos abaixo dos destaques da home. Priorizamos as
     # categorias escolhidas para o menu e completamos com as demais editorias.
     category_sections = []
@@ -666,6 +708,9 @@ def home():
         popular_posts=popular_posts,
         selected_cat_slug=selected_cat_slug,
         category_sections=category_sections,
+        home_category_columns=home_category_columns,
+        police_category=police_category,
+        police_posts=police_posts,
         live_title=live_title,
         live_embed_html=live_embed_html,
         ad_header=_get_ad("header_top"),

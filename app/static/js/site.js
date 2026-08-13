@@ -72,8 +72,13 @@ document.addEventListener('DOMContentLoaded', () => {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
       }));
+      const pct = Number(data?.USDBRL?.pctChange);
+      if (Number.isFinite(pct)) {
+        const sign = pct > 0 ? '+' : '';
+        updateAll('[data-dollar-change]', `${sign}${pct.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}%`);
+      }
     })
-    .catch(() => updateAll('[data-dollar-value]', 'Cotação indisponível'));
+    .catch(() => { updateAll('[data-dollar-value]', 'R$ --'); updateAll('[data-dollar-change]', '--%'); });
 
   const weatherUrl = 'https://api.open-meteo.com/v1/forecast?latitude=-25.5163&longitude=-54.5854&current=temperature_2m&temperature_unit=celsius&timezone=America%2FSao_Paulo';
   fetch(weatherUrl)
@@ -84,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
     .then((data) => {
       const temperature = Number(data?.current?.temperature_2m);
       if (!Number.isFinite(temperature)) throw new Error('Temperatura inválida');
-      updateAll('[data-weather-value]', `Foz do Iguaçu • ${Math.round(temperature)}°C`);
+      updateAll('[data-weather-value]', `${Math.round(temperature)}°C`);
     })
-    .catch(() => updateAll('[data-weather-value]', 'Foz do Iguaçu • --°C'));
+    .catch(() => updateAll('[data-weather-value]', '--°C'));
 });

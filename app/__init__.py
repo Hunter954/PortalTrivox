@@ -122,6 +122,7 @@ def _ensure_defaults():
         ("footer_copyright_text", "© 2026 Portal Trivox. Todos os direitos reservados."),
         ("site_keywords", "Portal Trivox, notícias, Foz do Iguaçu, Oeste do Paraná, tríplice fronteira, turismo, política"),
         ("top_menu_category_ids", "[]"),
+        ("home_featured_category_ids", "[]"),
         ("hub_enabled", "0"),
         ("hub_site_key", ""),
         ("hub_receive_token", ""),
@@ -199,6 +200,10 @@ def _ensure_starter_content():
     if menu_setting:
         import json
         menu_setting.value = json.dumps(menu)
+    home_categories_setting = SiteSetting.query.filter_by(key='home_featured_category_ids').first()
+    if home_categories_setting:
+        import json
+        home_categories_setting.value = json.dumps([cats[x].id for x in ['cidades','parana','turismo']])
     db.session.commit()
 
 

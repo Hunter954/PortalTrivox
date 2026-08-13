@@ -16,10 +16,13 @@
 <body>
 <header class="site-header">
   <div class="utility"><div class="shell utility__inner"><span><i class="bi bi-geo-alt-fill"></i> Foz do Iguaçu • Oeste do Paraná • Tríplice Fronteira</span><div class="utility__actions">{% for key,link in social_links.items() %}{% if link %}<a href="{{ link }}" target="_blank" rel="noopener" aria-label="{{ key }}"><i class="bi bi-{{ 'twitter-x' if key=='x' else key }}"></i></a>{% endif %}{% endfor %}</div></div></div>
-  <div class="shell brand-row">
+  <div class="shell brand-row{% if request.endpoint != 'site.home' %} brand-row--internal{% endif %}">
     <a class="brand" href="{{ url_for('site.home') }}"><img src="{{ logo_url or url_for('static', filename='img/logo-trivox.svg') }}" alt="{{ site_name_value }}"></a>
-    <div class="header-market market market--desktop" aria-label="Cotação e temperatura atuais"><div><small>DÓLAR COMERCIAL</small><strong data-dollar-value>R$ --</strong></div><div><small>TEMPO</small><strong data-weather-value>--°C</strong><span>Foz do Iguaçu</span></div></div>
-    <div class="header-ad">{{ ad_header|safe if ad_header else '<span>PUBLICIDADE<br><b>728 × 90</b></span>'|safe }}</div>
+    <div class="header-market market market--desktop" aria-label="Cotação e temperatura atuais">
+      <div class="market-card market-card--dollar"><small>DÓLAR COMERCIAL</small><div class="market-value-row"><strong data-dollar-value>R$ --</strong><i class="bi bi-graph-up-arrow market-dollar-icon"></i></div><span class="market-change" data-dollar-change>--%</span></div>
+      <div class="market-card market-card--weather"><small>TEMPO</small><div class="weather-row"><strong data-weather-value>--°C</strong><i class="bi bi-cloud-sun market-weather-icon"></i></div><span>Foz do Iguaçu</span></div>
+    </div>
+    {% if request.endpoint == 'site.home' %}<div class="header-ad">{{ ad_header|safe if ad_header else '<span>PUBLICIDADE<br><b>728 × 90</b></span>'|safe }}</div>{% endif %}
   </div>
   {% block mobile_market %}{% endblock %}
   <nav class="main-nav"><div class="shell nav-inner"><button class="nav-toggle" type="button" aria-label="Abrir menu"><i class="bi bi-list"></i></button><div class="nav-links"><a class="active" href="{{ url_for('site.home') }}">INÍCIO</a>{% for cat in nav_categories[:8] %}<a href="{{ url_for('site.category', slug=cat.slug) }}">{{ cat.name|upper }} <i class="bi bi-chevron-down"></i></a>{% endfor %}</div><form action="{{ url_for('site.search') }}" method="get"><input name="q" placeholder="Pesquisar..."><button aria-label="Buscar"><i class="bi bi-search"></i></button></form></div></nav>
