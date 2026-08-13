@@ -33,12 +33,12 @@ def _parse_ad_payload(raw: str | None) -> dict | None:
 
 
 AD_SLOT_CLASSNAMES = {
-    "header_top": "ad-slot-banner ad-slot-banner--landscape",
-    "home_top": "ad-slot-banner ad-slot-banner--wide",
-    "home_mid": "ad-slot-banner ad-slot-banner--wide",
-    "home_bottom": "ad-slot-banner ad-slot-banner--wide",
-    "sidebar_1": "ad-slot-banner ad-slot-banner--square",
-    "sidebar_2": "ad-slot-banner ad-slot-banner--square",
+    "header_top": "ad-slot-banner ad-slot-banner--header",
+    "home_top": "ad-slot-banner ad-slot-banner--home-wide",
+    "home_mid": "ad-slot-banner ad-slot-banner--home-wide",
+    "home_bottom": "ad-slot-banner ad-slot-banner--home-wide",
+    "sidebar_1": "ad-slot-banner ad-slot-banner--sidebar-large",
+    "sidebar_2": "ad-slot-banner ad-slot-banner--sidebar-small",
 }
 
 
@@ -70,10 +70,12 @@ def _render_ad_from_payload(slot_key: str, payload: dict) -> str:
     slides_html = []
     for idx, item in enumerate(clean_banners):
         display = 'block' if idx == 0 else 'none'
+        image_url = escape(item["image"], quote=True)
         slides_html.append(
             f'<a href="{escape(item["link"], quote=True)}" target="_blank" rel="noopener sponsored" '
             f'class="ad-rotator__slide" data-ad-slide style="display:{display};">'
-            f'<img src="{escape(item["image"], quote=True)}" alt="{escape(item["title"])}" loading="lazy"></a>'
+            f'<span class="ad-rotator__backdrop" aria-hidden="true" style="background-image:url(&quot;{image_url}&quot;)"></span>'
+            f'<img src="{image_url}" alt="{escape(item["title"])}" loading="lazy"></a>'
         )
     controls = ''
     script = ''

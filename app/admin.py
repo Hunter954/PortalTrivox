@@ -135,10 +135,10 @@ def _parse_ad_slot_payload(raw: str | None) -> dict | None:
 
 def _default_slot_layout_meta() -> dict:
     return {
-        'header_top': {'label':'Banner do cabeçalho','hint':'Ao lado da logomarca em todas as páginas','shape':'rectangle','dimensions':'728 × 90 px'},
-        'home_top': {'label':'Banner horizontal da home','hint':'Abaixo de Últimas Notícias, antes das categorias','shape':'wide','dimensions':'970 × 180 px'},
-        'sidebar_1': {'label':'Banner lateral grande da home','hint':'Ao lado direito da matéria em destaque; aproximadamente 2x a altura do segundo banner','shape':'square','dimensions':'300 × 300 px'},
-        'sidebar_2': {'label':'Banner lateral menor da home','hint':'Abaixo do banner lateral grande','shape':'rectangle','dimensions':'300 × 140 px'},
+        'header_top': {'label':'Banner do cabeçalho','hint':'Ao lado da logomarca em todas as páginas. O portal adapta artes horizontais sem alterar a altura do cabeçalho.','shape':'rectangle','dimensions':'728 × 90 px (aceita horizontais)'},
+        'home_top': {'label':'Banner horizontal da home','hint':'Abaixo de Últimas Notícias. A altura do bloco fica fixa para não empurrar as categorias.','shape':'wide','dimensions':'970 × 180 px (aceita 500×200 / 460×320)'},
+        'sidebar_1': {'label':'Banner lateral grande da home','hint':'Primeiro banner à direita do destaque. Aceita artes verticais e quadradas sem mudar o alinhamento da home.','shape':'tall','dimensions':'300 × 450 / 300 × 600 px'},
+        'sidebar_2': {'label':'Banner lateral menor da home','hint':'Segundo banner à direita do destaque. Aceita 300×250 e formatos próximos.','shape':'rectangle','dimensions':'300 × 250 px'},
     }
 
 

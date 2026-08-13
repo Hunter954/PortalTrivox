@@ -45,8 +45,9 @@
       </label>
     </div>
 
-    <div class="ads-manage-note">
-      <i class="bi bi-info-circle"></i> Pode deixar mais de um banner nesse mesmo local. O sistema faz a rotação automaticamente no site e a arte ideal para esse espaço é <strong>{{ slot_data.dimensions }}</strong>.
+    <div class="ads-manage-note ads-manage-note--smart">
+      <i class="bi bi-aspect-ratio"></i>
+      <div><strong>Encaixe inteligente ativado.</strong> Você pode usar artes com proporções diferentes neste slot. O portal mantém a altura do layout fixa, exibe a peça inteira e preenche o espaço restante com uma extensão suave da própria arte — sem fundo cinza e sem empurrar as notícias para baixo. <span>Referência: {{ slot_data.dimensions }}.</span></div>
     </div>
 
     <div class="ads-banner-list" data-banner-list>
