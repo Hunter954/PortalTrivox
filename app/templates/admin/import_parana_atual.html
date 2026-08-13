@@ -1,0 +1,93 @@
+{% extends "admin/layout.html" %}
+{% block admin_title %}Importar Paraná Atual{% endblock %}
+{% block page_title %}Importar matérias do Paraná Atual{% endblock %}
+{% block page_subtitle %}Importe primeiro as matérias mais recentes, preserve a categoria original e atualize matérias já importadas.{% endblock %}
+{% block admin_content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h5 class="mb-3">Buscar matérias</h5>
+        <form method="post" class="row g-3">
+          <input type="hidden" name="action" value="preview">
+          <div class="col-12">
+            <label class="form-label">URL para buscar</label>
+            <input class="form-control" name="source_url" value="{{ source_url }}" placeholder="https://www.paranaatual.com.br/">
+            <div class="form-text">Use a home, /noticias, uma categoria ou a URL direta. A busca ordena as matérias pelo ID mais recente.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Limite</label>
+            <input class="form-control" type="number" min="1" max="100" name="limit" value="{{ limit }}">
+          </div>
+          <div class="col-12 d-flex gap-2">
+            <button class="btn btn-dark" type="submit"><i class="bi bi-search me-1"></i>Ver links encontrados</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if preview_items %}
+    <div class="card border-0 shadow-sm mt-4">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+          <h5 class="mb-0">Prévia da importação</h5>
+          <form method="post">
+            <input type="hidden" name="action" value="import">
+            <input type="hidden" name="source_url" value="{{ source_url }}">
+            <input type="hidden" name="limit" value="{{ limit }}">
+            <button class="btn btn-success" type="submit"><i class="bi bi-cloud-arrow-down me-1"></i>Importar tudo</button>
+          </form>
+        </div>
+        <div class="list-group list-group-flush">
+          {% for item in preview_items %}
+          <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+            <div>
+              <strong>{{ item.title }}</strong><br>
+              <a href="{{ item.url }}" target="_blank" rel="noopener" class="small">{{ item.url }}</a>
+            </div>
+            {% if item.exists %}<span class="badge text-bg-warning align-self-start">já existe</span>{% else %}<span class="badge text-bg-primary align-self-start">novo</span>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if imported_items %}
+    <div class="card border-0 shadow-sm mt-4">
+      <div class="card-body">
+        <h5 class="mb-3">Resultado</h5>
+        <div class="list-group list-group-flush">
+          {% for item in imported_items %}
+          <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+            <div><strong>{{ item.title }}</strong><br><a href="{{ item.url }}" target="_blank" rel="noopener" class="small">{{ item.url }}</a></div>
+            <span class="badge {% if item.status == 'Importada' %}text-bg-success{% elif item.status == 'Atualizada' %}text-bg-primary{% else %}text-bg-secondary{% endif %} align-self-start">{{ item.status }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if errors %}
+    <div class="alert alert-warning mt-4">
+      <strong>Atenção:</strong>
+      <ul class="mb-0 mt-2">
+        {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h5 class="mb-3">Situação</h5>
+        <div class="d-flex justify-content-between border-bottom py-2"><span>Importadas</span><strong>{{ import_stats.imported_total }}</strong></div>
+        <div class="d-flex justify-content-between border-bottom py-2"><span>Imagens no volume</span><strong>{{ import_stats.with_local_images }}</strong></div>
+        <p class="text-muted small mt-3 mb-0">As fotos são salvas em <code>/media/imported</code>, dentro do volume configurado por <code>MEDIA_ROOT</code>. Depois migramos essa camada para Cloudflare R2 sem mexer no painel.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

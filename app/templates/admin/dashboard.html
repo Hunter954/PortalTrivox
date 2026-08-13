@@ -1,0 +1,40 @@
+{% extends 'admin/layout.html' %}
+{% block admin_title %}Visão geral{% endblock %}
+{% block page_title %}Visão geral{% endblock %}
+{% block page_subtitle %}Resumo do portal, atalhos e áreas principais do painel administrativo.{% endblock %}
+{% block admin_content %}
+<section class="stats-grid dashboard-section">
+  <article class="stat-card"><span>Visualizações totais</span><strong>{{ stats.pv_total }}</strong><small>Últimas 24h: {{ stats.pv_24h }}</small></article>
+  <article class="stat-card"><span>Total de matérias</span><strong>{{ stats.posts_total }}</strong><small>{{ stats.local_posts }} locais / {{ stats.wp_posts }} importadas</small></article>
+  <article class="stat-card"><span>Categorias</span><strong>{{ stats.categories_total }}</strong><small>Organização editorial</small></article>
+  <article class="stat-card"><span>Espaços ativos</span><strong>{{ stats.active_ads }}</strong><small>Publicidade e mídia</small></article>
+</section>
+
+<section class="admin-grid-2 dashboard-section">
+  <div class="panel-card">
+    <div class="panel-head"><div><h2>Ações rápidas</h2><p>Acesse as tarefas mais usadas do painel.</p></div></div>
+    <div class="quick-actions">
+      <a class="quick-action" href="{{ url_for('admin.posts_new') }}"><i class="bi bi-plus-circle"></i><span>Nova matéria</span></a>
+      <a class="quick-action" href="{{ url_for('admin.categories_new') }}"><i class="bi bi-tag"></i><span>Nova categoria</span></a>
+      <a class="quick-action" href="{{ url_for('admin.media_library') }}"><i class="bi bi-upload"></i><span>Enviar arquivos</span></a>
+      <a class="quick-action" href="{{ url_for('admin.settings_page') }}"><i class="bi bi-sliders"></i><span>Ajustar identidade</span></a>
+      <a class="quick-action" href="{{ url_for('admin.insights_page') }}"><i class="bi bi-graph-up-arrow"></i><span>Ver estatísticas</span></a>
+    </div>
+  </div>
+  <div class="panel-card">
+    <div class="panel-head"><div><h2>Identidade do portal</h2><p>Atualize o nome e a logomarca pelo envio de arquivo.</p></div></div>
+    <form class="vstack gap-3" method="post" action="{{ url_for('admin.save_identity') }}" enctype="multipart/form-data">
+      <div><label class="form-label">Nome do site</label><input class="form-control" name="site_name" value="{{ site_name }}"></div>
+      <div><label class="form-label">Logomarca</label><input class="form-control" type="file" name="logo_file" accept=".png,.jpg,.jpeg,.webp,.svg,.gif"></div>
+      <div class="d-flex justify-content-end"><button class="btn btn-dark" type="submit">Salvar identidade</button></div>
+    </form>
+  </div>
+</section>
+
+<section class="admin-grid-2 dashboard-section">
+  <div class="panel-card"><div class="panel-head"><div><h2>Últimas matérias</h2><p>Publicações e alterações mais recentes.</p></div><a class="btn btn-sm btn-outline-dark" href="{{ url_for('admin.posts_list') }}">Ver tudo</a></div><div class="table-responsive"><table class="table admin-table align-middle mb-0"><thead><tr><th>Título</th><th>Origem</th><th>Data</th><th></th></tr></thead><tbody>{% for post in stats.recent_posts %}<tr><td class="dashboard-title-cell"><strong title="{{ post.title }}">{{ post.title }}</strong></td><td><span class="badge rounded-pill text-bg-{% if post.source == 'local' %}dark{% else %}secondary{% endif %}">{{ 'Local' if post.source == 'local' else 'Importada' }}</span></td><td class="post-date-cell">{{ post.published_at.strftime('%d/%m/%Y %H:%M') if post.published_at else '—' }}</td><td class="text-end"><a class="btn btn-sm btn-outline-dark" href="{{ url_for('admin.posts_edit', post_id=post.id) }}">Editar</a></td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted py-4">Nenhuma matéria encontrada.</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="panel-card" id="ads"><div class="panel-head"><div><h2>Publicidade</h2><p>Gerencie os espaços de anúncios do portal.</p></div><a class="btn btn-sm btn-dark" href="{{ url_for('admin.ads_editor') }}">Abrir editor</a></div><div class="table-responsive"><table class="table admin-table align-middle mb-0"><thead><tr><th>Local</th><th>Nome</th><th>Situação</th><th></th></tr></thead><tbody>{% for s in slots %}<tr><td><code>{{ s.key }}</code></td><td>{{ s.name }}</td><td>{% if s.is_active %}<span class="badge text-bg-success">Ativo</span>{% else %}<span class="badge text-bg-secondary">Inativo</span>{% endif %}</td><td class="text-end"><a class="btn btn-sm btn-outline-dark" href="{{ url_for('admin.ads_manage', slot_id=s.id) }}">Gerenciar</a></td></tr>{% endfor %}</tbody></table></div></div>
+</section>
+
+<section class="panel-card dashboard-section"><div class="panel-head"><div><h2>Biblioteca recente</h2><p>Arquivos enviados e armazenados no sistema.</p></div><a class="btn btn-sm btn-outline-dark" href="{{ url_for('admin.media_library') }}">Abrir biblioteca</a></div><div class="media-mini-grid">{% for file in media_files %}<div class="media-mini-card"><a href="{{ file.url }}" target="_blank" rel="noopener">{{ file.name }}</a><small>{{ file.size_kb }} KB</small></div>{% else %}<div class="text-muted">Nenhum arquivo enviado ainda.</div>{% endfor %}</div></section>
+{% endblock %}
