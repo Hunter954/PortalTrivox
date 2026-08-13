@@ -101,3 +101,27 @@ document.addEventListener('DOMContentLoaded', () => {
     })
     .catch(() => updateAll('[data-weather-value]', '--°C'));
 });
+
+// Carrossel de categorias da home no mobile: setas + swipe/arraste nativo.
+document.addEventListener('DOMContentLoaded', () => {
+  const carousel = document.querySelector('[data-category-carousel]');
+  const track = carousel?.querySelector('[data-category-track]');
+  const prev = carousel?.querySelector('[data-category-prev]');
+  const next = carousel?.querySelector('[data-category-next]');
+  if (!carousel || !track || !prev || !next) return;
+
+  const slides = () => Array.from(track.querySelectorAll('.popular-column'));
+  const currentIndex = () => {
+    const width = track.clientWidth || 1;
+    return Math.max(0, Math.min(slides().length - 1, Math.round(track.scrollLeft / width)));
+  };
+  const goTo = (index) => {
+    const items = slides();
+    if (!items.length) return;
+    const target = Math.max(0, Math.min(items.length - 1, index));
+    items[target].scrollIntoView({behavior:'smooth', block:'nearest', inline:'start'});
+  };
+
+  prev.addEventListener('click', () => goTo(currentIndex() - 1));
+  next.addEventListener('click', () => goTo(currentIndex() + 1));
+});

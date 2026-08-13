@@ -17,8 +17,17 @@
   <div class="home-ad-pair__slot">{{ ad_home_right|safe if ad_home_right else '<span>PUBLICIDADE</span>'|safe }}</div>
 </section>
 
-<section class="triple-popular">
-{% for section in home_category_columns %}<div class="popular-column"><div class="section-title compact"><h2>{{ section.category.name }}</h2><a href="{{ url_for('site.category', slug=section.category.slug) }}">Ver todas <i class="bi bi-arrow-right"></i></a></div>{% for p in section.posts %}<article><a href="{{ url_for('site.post',slug=p.slug) }}"><img src="{{ p.featured_image }}"><div><div class="source-line"><span class="source-dot"></span>{{ p.author_name or 'Trivox' }} • agora</div><h3>{{ display_post_title(p,limit=70) }}</h3><small>{{ section.category.name }} • 3 min</small></div></a></article>{% endfor %}</div>{% endfor %}
+<section class="category-carousel" data-category-carousel>
+  <div class="category-carousel__mobile-head">
+    <strong>Categorias</strong>
+    <div class="category-carousel__controls" aria-label="Navegar entre categorias">
+      <button type="button" class="category-carousel__arrow" data-category-prev aria-label="Categoria anterior"><i class="bi bi-arrow-left"></i></button>
+      <button type="button" class="category-carousel__arrow" data-category-next aria-label="Próxima categoria"><i class="bi bi-arrow-right"></i></button>
+    </div>
+  </div>
+  <div class="triple-popular" data-category-track>
+  {% for section in home_category_columns %}<div class="popular-column"><div class="section-title compact"><h2>{{ section.category.name }}</h2><a class="category-view-all" href="{{ url_for('site.category', slug=section.category.slug) }}">Ver todas <i class="bi bi-arrow-right"></i></a></div>{% for p in section.posts %}<article><a href="{{ url_for('site.post',slug=p.slug) }}"><img src="{{ p.featured_image }}"><div><div class="source-line"><span class="source-dot"></span>{{ p.author_name or 'Trivox' }} • agora</div><h3>{{ display_post_title(p,limit=70) }}</h3><small>{{ section.category.name }} • 3 min</small></div></a></article>{% endfor %}</div>{% endfor %}
+  </div>
 </section>
 <section class="dark-popular full-bleed"><div class="shell"><div class="section-title dark-title dark-title--police"><h2>{{ dark_category.name if dark_category else 'Destaques' }}</h2>{% if dark_category %}<a href="{{ url_for('site.category', slug=dark_category.slug) }}">Ver todas <i class="bi bi-arrow-right"></i></a>{% endif %}</div>{% set dark=dark_posts %}<div class="dark-grid">{% if dark|length>0 %}<article class="dark-small"><a href="{{ url_for('site.post',slug=dark[0].slug) }}"><img src="{{ dark[0].featured_image }}"><h3>{{ display_post_title(dark[0],limit=74) }}</h3><p>{{ display_post_summary(dark[0],limit=105) }}</p></a></article>{% endif %}{% if dark|length>1 %}<article class="dark-feature"><a href="{{ url_for('site.post',slug=dark[1].slug) }}" style="background-image:url('{{ dark[1].featured_image }}')"><div><h2>{{ display_post_title(dark[1],limit=100) }}</h2><p>{{ display_post_summary(dark[1],limit=130) }}</p></div></a></article>{% endif %}<div class="dark-stack">{% for p in dark[2:4] %}<article><a href="{{ url_for('site.post',slug=p.slug) }}"><img src="{{ p.featured_image }}"><h3>{{ display_post_title(p,limit=65) }}</h3><small>{{ dark_category.name if dark_category else 'Destaques' }} • 4 min</small></a></article>{% endfor %}</div></div></div></section>
 

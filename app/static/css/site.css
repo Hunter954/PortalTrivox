@@ -204,3 +204,119 @@
   .article-cover img{border-radius:0}
   .article-content{font-size:16px!important;line-height:1.68!important}
 }
+
+/* Portal Trivox — refinamento mobile de publicidade + carrossel de categorias */
+.category-carousel__mobile-head{display:none}
+
+@media (max-width:620px){
+  /* Banners laterais: largura útil inteira, arte completa e sem corte */
+  .trivox-ad-stack{
+    display:flex!important;
+    flex-direction:column!important;
+    width:calc(100% - 24px)!important;
+    height:auto!important;
+    margin:4px 12px 8px!important;
+    gap:12px!important;
+  }
+  .trivox-ad-stack>div{
+    width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    aspect-ratio:auto!important;
+    overflow:hidden!important;
+    border-radius:5px;
+    background:transparent!important;
+  }
+  .trivox-ad-stack .ad-rotator,
+  .trivox-ad-stack .ad-rotator__slide,
+  .trivox-ad-stack .ad-slot-banner,
+  .trivox-ad-stack>div>a{
+    width:100%!important;
+    height:auto!important;
+    display:block!important;
+  }
+  .trivox-ad-stack img,
+  .trivox-ad-stack video,
+  .trivox-ad-stack .ad-slot-banner img,
+  .trivox-ad-stack .ad-rotator img{
+    width:100%!important;
+    height:auto!important;
+    max-width:100%!important;
+    object-fit:contain!important;
+    display:block!important;
+  }
+
+  /* Dois banners abaixo de Últimas Notícias: empilhados e completos */
+  .home-ad-pair{
+    display:flex!important;
+    flex-direction:column!important;
+    width:100%!important;
+    height:auto!important;
+    gap:12px!important;
+    margin:26px 0!important;
+  }
+  .home-ad-pair__slot{
+    width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    background:transparent!important;
+    border-radius:5px;
+    overflow:hidden!important;
+  }
+  .home-ad-pair__slot .ad-rotator,
+  .home-ad-pair__slot .ad-rotator__slide,
+  .home-ad-pair__slot .ad-slot-banner,
+  .home-ad-pair__slot>a{
+    width:100%!important;
+    height:auto!important;
+    display:block!important;
+  }
+  .home-ad-pair__slot img,
+  .home-ad-pair__slot video,
+  .home-ad-pair__slot .ad-slot-banner img,
+  .home-ad-pair__slot .ad-rotator img{
+    width:100%!important;
+    height:auto!important;
+    max-width:100%!important;
+    object-fit:contain!important;
+    display:block!important;
+  }
+
+  /* Categorias: um painel por vez, swipe/arraste e setas */
+  .category-carousel{margin:0 0 28px;position:relative}
+  .category-carousel__mobile-head{display:flex;align-items:center;justify-content:space-between;margin:2px 0 10px}
+  .category-carousel__mobile-head>strong{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#778086}
+  .category-carousel__controls{display:flex;gap:8px}
+  .category-carousel__arrow{width:38px;height:38px;border:1px solid #dbe1e3;border-radius:50%;background:#fff;color:#003e4d;display:grid;place-items:center;font-size:17px;box-shadow:0 4px 12px rgba(0,0,0,.04)}
+  .category-carousel__arrow:active{transform:scale(.96)}
+  .triple-popular{
+    display:flex!important;
+    gap:14px!important;
+    margin:0!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    scroll-snap-type:x mandatory;
+    scroll-behavior:smooth;
+    scrollbar-width:none;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior-x:contain;
+  }
+  .triple-popular::-webkit-scrollbar{display:none}
+  .popular-column,
+  .popular-column:nth-child(n+2),
+  .popular-column:last-child{
+    display:block!important;
+    flex:0 0 100%!important;
+    width:100%!important;
+    margin:0!important;
+    scroll-snap-align:start;
+    scroll-snap-stop:always;
+  }
+  .popular-column .compact{margin-bottom:8px}
+  .popular-column .compact h2{font-size:23px}
+  .popular-column .category-view-all{display:none!important}
+  .popular-column article:nth-of-type(n+5){display:none}
+  .popular-column article a{grid-template-columns:104px minmax(0,1fr)!important;gap:12px!important;padding:10px 0!important}
+  .popular-column article img{width:104px!important;height:68px!important}
+  .popular-column h3{font-size:12px!important;line-height:1.18!important}
+}
