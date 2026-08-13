@@ -3,6 +3,7 @@ import re
 import shutil
 import json
 import requests
+import threading
 from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -14,11 +15,11 @@ from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import func, desc, or_
 from werkzeug.utils import secure_filename
 
-from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, post_categories, AnalyticsSession
+from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, post_categories, AnalyticsSession, WPImportJob, WPImportLog
 from .sync import download_external_image
 from .forms import LoginForm, AdSlotForm, CategoryForm, PostAdminForm
 from .wp_client import WPClient
-from .sync import sync_categories, sync_posts, localize_existing_wp_images
+from .sync import sync_categories, sync_posts, localize_existing_wp_images, upsert_category, upsert_wp_post
 from html import unescape
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -829,6 +830,208 @@ def _wp_stats():
         "without_images": without_images,
         "recent_posts": recent_posts,
     }
+
+
+def _wp_job_payload(job):
+    if not job:
+        return None
+    total = max(int(job.total_posts or 0), 0)
+    processed = max(int(job.processed_posts or 0), 0)
+    percent = round(min(100.0, (processed / total * 100.0) if total else 0.0), 1)
+    elapsed = None
+    eta_seconds = None
+    if job.started_at:
+        end = job.finished_at or datetime.utcnow()
+        elapsed = max(0, int((end - job.started_at).total_seconds()))
+        if processed > 0 and total > processed and job.status == "running":
+            eta_seconds = int((elapsed / processed) * (total - processed))
+    heartbeat_age = None
+    if job.heartbeat_at:
+        heartbeat_age = max(0, int((datetime.utcnow() - job.heartbeat_at).total_seconds()))
+    latest_logs = (WPImportLog.query.filter_by(job_id=job.id)
+                   .order_by(desc(WPImportLog.id)).limit(18).all())
+    return {
+        "id": job.id, "status": job.status, "phase": job.phase, "base_url": job.base_url,
+        "total_posts": total, "processed_posts": processed, "imported_posts": job.imported_posts or 0,
+        "updated_posts": job.updated_posts or 0, "failed_posts": job.failed_posts or 0,
+        "skipped_posts": job.skipped_posts or 0, "total_categories": job.total_categories or 0,
+        "processed_categories": job.processed_categories or 0, "image_successes": job.image_successes or 0,
+        "image_failures": job.image_failures or 0, "current_wp_id": job.current_wp_id,
+        "current_title": job.current_title or "", "current_page": job.current_page or 0,
+        "total_pages": job.total_pages or 0, "error_message": job.error_message or "",
+        "cancel_requested": bool(job.cancel_requested), "percent": percent, "elapsed_seconds": elapsed,
+        "eta_seconds": eta_seconds, "heartbeat_age": heartbeat_age,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "logs": [{
+            "status": log.status, "title": log.title or "", "wp_id": log.wp_id,
+            "message": log.message or "", "created_at": log.created_at.isoformat() if log.created_at else None
+        } for log in latest_logs],
+    }
+
+
+def _latest_wp_job():
+    return WPImportJob.query.order_by(desc(WPImportJob.id)).first()
+
+
+def _active_wp_job():
+    return (WPImportJob.query.filter(WPImportJob.status.in_(["queued", "running"]))
+            .order_by(desc(WPImportJob.id)).first())
+
+
+def _run_wp_import_background(app, job_id: int):
+    """Importador resiliente: executa fora da requisição HTTP e grava progresso a cada item."""
+    with app.app_context():
+        job = db.session.get(WPImportJob, job_id)
+        if not job:
+            return
+        try:
+            job.status = "running"
+            job.phase = "Analisando o WordPress"
+            job.started_at = datetime.utcnow()
+            job.heartbeat_at = datetime.utcnow()
+            db.session.commit()
+
+            client = WPClient(job.base_url)
+            per_page = max(1, min(int(app.config.get("WP_PER_PAGE", 20) or 20), 100))
+            info = client.inspect_source(per_page=per_page)
+            job.total_posts = info["total_posts"]
+            job.total_pages = info["total_pages"]
+            job.total_categories = info["total_categories"]
+            job.phase = "Importando categorias"
+            job.heartbeat_at = datetime.utcnow()
+            db.session.commit()
+
+            # Categorias primeiro, com commit individual para um registro ruim não abortar tudo.
+            cat_page = 1
+            while True:
+                if db.session.get(WPImportJob, job_id).cancel_requested:
+                    raise InterruptedError("Importação cancelada pelo usuário")
+                data, headers = client.list_categories(page=cat_page, per_page=100)
+                if not data:
+                    break
+                if not job.total_categories:
+                    job.total_categories = int(headers.get("X-WP-Total", len(data)) or len(data))
+                for category_data in data:
+                    try:
+                        upsert_category(category_data)
+                        db.session.commit()
+                    except Exception as exc:
+                        db.session.rollback()
+                        db.session.add(WPImportLog(job_id=job_id, wp_id=category_data.get("id"), title=category_data.get("name"), status="error", message=f"Categoria: {str(exc)[:500]}"))
+                        db.session.commit()
+                    job = db.session.get(WPImportJob, job_id)
+                    job.processed_categories += 1
+                    job.heartbeat_at = datetime.utcnow()
+                    db.session.commit()
+                if len(data) < 100:
+                    break
+                cat_page += 1
+
+            job = db.session.get(WPImportJob, job_id)
+            job.phase = "Importando matérias e imagens"
+            job.heartbeat_at = datetime.utcnow()
+            db.session.commit()
+
+            page = 1
+            while True:
+                job = db.session.get(WPImportJob, job_id)
+                if job.cancel_requested:
+                    raise InterruptedError("Importação cancelada pelo usuário")
+                if job.total_pages and page > job.total_pages:
+                    break
+                job.current_page = page
+                job.phase = f"Lendo página {page} de {job.total_pages or '?'}"
+                job.heartbeat_at = datetime.utcnow()
+                db.session.commit()
+
+                data, headers = client.list_posts(page=page, per_page=per_page)
+                if not data:
+                    break
+                job = db.session.get(WPImportJob, job_id)
+                if not job.total_posts:
+                    job.total_posts = int(headers.get("X-WP-Total", len(data)) or len(data))
+                if not job.total_pages:
+                    job.total_pages = int(headers.get("X-WP-TotalPages", 1) or 1)
+                db.session.commit()
+
+                for post_data in data:
+                    job = db.session.get(WPImportJob, job_id)
+                    if job.cancel_requested:
+                        raise InterruptedError("Importação cancelada pelo usuário")
+                    title = ((post_data.get("title") or {}).get("rendered") or "Sem título")
+                    wp_id = post_data.get("id")
+                    job.current_wp_id = wp_id
+                    job.current_title = title[:500]
+                    job.phase = "Baixando matéria e imagens"
+                    job.heartbeat_at = datetime.utcnow()
+                    db.session.commit()
+
+                    try:
+                        result = upsert_wp_post(post_data, download_images=True)
+                        db.session.commit()
+                        job = db.session.get(WPImportJob, job_id)
+                        if result.get("skipped"):
+                            job.skipped_posts += 1
+                            log_status = "info"
+                            log_message = "Sem alterações; imagens locais reaproveitadas"
+                        elif result["created"]:
+                            job.imported_posts += 1
+                            log_status = "imported"
+                            log_message = "Matéria nova importada"
+                        else:
+                            job.updated_posts += 1
+                            log_status = "updated"
+                            log_message = "Matéria existente atualizada"
+                        job.image_successes += int(result.get("image_successes", 0) or 0)
+                        job.image_failures += int(result.get("image_failures", 0) or 0)
+                        db.session.add(WPImportLog(job_id=job_id, wp_id=wp_id, title=title[:500], status=log_status, message=log_message))
+                    except Exception as exc:
+                        db.session.rollback()
+                        job = db.session.get(WPImportJob, job_id)
+                        job.failed_posts += 1
+                        db.session.add(WPImportLog(job_id=job_id, wp_id=wp_id, title=title[:500], status="error", message=str(exc)[:1000]))
+                    job.processed_posts += 1
+                    job.heartbeat_at = datetime.utcnow()
+                    db.session.commit()
+
+                if page >= int(headers.get("X-WP-TotalPages", job.total_pages or 1) or 1):
+                    break
+                page += 1
+
+            job = db.session.get(WPImportJob, job_id)
+            job.status = "completed"
+            job.phase = "Importação concluída"
+            job.current_title = None
+            job.current_wp_id = None
+            job.finished_at = datetime.utcnow()
+            job.heartbeat_at = datetime.utcnow()
+            db.session.add(WPImportLog(job_id=job_id, status="info", message="Importação finalizada com sucesso."))
+            db.session.commit()
+        except InterruptedError as exc:
+            db.session.rollback()
+            job = db.session.get(WPImportJob, job_id)
+            if job:
+                job.status = "cancelled"
+                job.phase = "Importação cancelada"
+                job.error_message = str(exc)
+                job.finished_at = datetime.utcnow()
+                job.heartbeat_at = datetime.utcnow()
+                db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            job = db.session.get(WPImportJob, job_id)
+            if job:
+                job.status = "failed"
+                job.phase = "Importação interrompida"
+                job.error_message = str(exc)[:2000]
+                job.finished_at = datetime.utcnow()
+                job.heartbeat_at = datetime.utcnow()
+                db.session.add(WPImportLog(job_id=job_id, status="error", message=f"Falha geral: {str(exc)[:1000]}"))
+                db.session.commit()
+        finally:
+            db.session.remove()
 
 
 @admin_bp.app_context_processor
@@ -1677,6 +1880,7 @@ def wordpress_manager():
         return r
     stats = _wp_stats()
     stats["base_url"] = _wp_source_url()
+    stats["job"] = _wp_job_payload(_latest_wp_job())
     return render_template("admin/wordpress.html", wp=stats, **_common_admin_context("wordpress"))
 
 
@@ -1686,15 +1890,67 @@ def wordpress_sync_page():
     r = _require_admin()
     if r:
         return r
-    try:
-        client = WPClient(_wp_source_url())
-        sync_categories(client)
-        sync_posts(client, max_pages=None, per_page=current_app.config["WP_PER_PAGE"], download_images=True)
-        flash("Importação do WordPress concluída com imagens salvas no servidor.", "success")
-    except Exception as e:
-        db.session.rollback()
-        flash(f"Erro na importação do WordPress: {e}", "danger")
+    base_url = _wp_source_url()
+    if not base_url:
+        message = "Cadastre primeiro a URL do WordPress de origem."
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"ok": False, "message": message}), 400
+        flash(message, "danger")
+        return redirect(url_for("admin.wordpress_manager"))
+
+    active = _active_wp_job()
+    if active:
+        # Um job sem heartbeat por mais de 30 minutos é considerado abandonado.
+        if active.heartbeat_at and (datetime.utcnow() - active.heartbeat_at).total_seconds() > 1800:
+            active.status = "failed"
+            active.phase = "Importação anterior abandonada"
+            active.error_message = "O processo anterior ficou sem atividade por mais de 30 minutos."
+            active.finished_at = datetime.utcnow()
+            db.session.commit()
+        else:
+            payload = _wp_job_payload(active)
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify({"ok": False, "message": "Já existe uma importação em andamento.", "job": payload}), 409
+            flash("Já existe uma importação em andamento.", "warning")
+            return redirect(url_for("admin.wordpress_manager"))
+
+    job = WPImportJob(status="queued", phase="Preparando importação", base_url=base_url, heartbeat_at=datetime.utcnow())
+    db.session.add(job)
+    db.session.commit()
+    app = current_app._get_current_object()
+    threading.Thread(target=_run_wp_import_background, args=(app, job.id), daemon=True, name=f"wp-import-{job.id}").start()
+    payload = _wp_job_payload(job)
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "message": "Importação iniciada.", "job": payload}), 202
+    flash("Importação iniciada. Você pode acompanhar o progresso nesta tela.", "success")
     return redirect(url_for("admin.wordpress_manager"))
+
+
+@admin_bp.get("/wordpress/import-status")
+@login_required
+def wordpress_import_status():
+    r = _require_admin()
+    if r:
+        return r
+    job_id = request.args.get("job_id", type=int)
+    job = db.session.get(WPImportJob, job_id) if job_id else _latest_wp_job()
+    return jsonify({"ok": True, "job": _wp_job_payload(job), "stats": _wp_stats()})
+
+
+@admin_bp.post("/wordpress/cancel")
+@login_required
+def wordpress_cancel_import():
+    r = _require_admin()
+    if r:
+        return r
+    job = _active_wp_job()
+    if not job:
+        return jsonify({"ok": False, "message": "Não há importação em andamento."}), 404
+    job.cancel_requested = True
+    job.phase = "Cancelamento solicitado"
+    job.heartbeat_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"ok": True, "message": "Cancelamento solicitado. O processo será interrompido após o item atual."})
 
 
 @admin_bp.post("/wordpress/localize-images")

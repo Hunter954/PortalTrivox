@@ -54,6 +54,53 @@ class Post(db.Model):
 
     categories = db.relationship("Category", secondary=post_categories, lazy="joined")
 
+
+
+class WPImportJob(db.Model):
+    __tablename__ = "wp_import_job"
+    id = db.Column(db.Integer, primary_key=True)
+    status = db.Column(db.String(30), default="queued", nullable=False, index=True)  # queued | running | completed | failed | cancelled
+    phase = db.Column(db.String(60), default="Aguardando início", nullable=False)
+    base_url = db.Column(db.String(1000), nullable=True)
+
+    total_posts = db.Column(db.Integer, default=0, nullable=False)
+    processed_posts = db.Column(db.Integer, default=0, nullable=False)
+    imported_posts = db.Column(db.Integer, default=0, nullable=False)
+    updated_posts = db.Column(db.Integer, default=0, nullable=False)
+    failed_posts = db.Column(db.Integer, default=0, nullable=False)
+    skipped_posts = db.Column(db.Integer, default=0, nullable=False)
+
+    total_categories = db.Column(db.Integer, default=0, nullable=False)
+    processed_categories = db.Column(db.Integer, default=0, nullable=False)
+    image_successes = db.Column(db.Integer, default=0, nullable=False)
+    image_failures = db.Column(db.Integer, default=0, nullable=False)
+
+    current_wp_id = db.Column(db.Integer, nullable=True)
+    current_title = db.Column(db.String(500), nullable=True)
+    current_page = db.Column(db.Integer, default=0, nullable=False)
+    total_pages = db.Column(db.Integer, default=0, nullable=False)
+    error_message = db.Column(db.Text, nullable=True)
+    cancel_requested = db.Column(db.Boolean, default=False, nullable=False)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    heartbeat_at = db.Column(db.DateTime, nullable=True, index=True)
+    finished_at = db.Column(db.DateTime, nullable=True)
+
+
+class WPImportLog(db.Model):
+    __tablename__ = "wp_import_log"
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey("wp_import_job.id", ondelete="CASCADE"), nullable=False, index=True)
+    wp_id = db.Column(db.Integer, nullable=True, index=True)
+    title = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(30), nullable=False, index=True)  # imported | updated | error | info
+    message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    job = db.relationship("WPImportJob", backref=db.backref("logs", lazy="dynamic", cascade="all, delete-orphan"))
+
+
 class AdSlot(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(80), unique=True, nullable=False)  # ex: lateral_1, lateral_2, header_top

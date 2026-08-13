@@ -1,15 +1,264 @@
 {% extends "admin/layout.html" %}
 {% block admin_title %}Importar WordPress{% endblock %}
-{% block page_title %}Importar matérias do WordPress{% endblock %}
-{% block page_subtitle %}Traga matérias, categorias e imagens para o banco e para o /data do Portal Trivox.{% endblock %}
+{% block page_title %}Central de importação WordPress{% endblock %}
+{% block page_subtitle %}Importe matérias, categorias e imagens com acompanhamento em tempo real, sem deixar a página travada.{% endblock %}
 {% block admin_content %}
-<section class="admin-section">
-  <div class="card shadow-sm border-0 mb-4"><div class="card-body">
-    <h5 class="mb-1">WordPress de origem</h5><p class="text-muted">Informe a URL principal do site, sem <code>/wp-json</code>. Ex.: https://site-do-cliente.com.br</p>
-    <form class="row g-2 align-items-end" method="post" action="{{ url_for('admin.wordpress_save_source') }}"><div class="col-lg-9"><label class="form-label">URL do WordPress</label><input class="form-control" type="url" name="wp_base_url" value="{{ wp.base_url }}" required placeholder="https://site-do-cliente.com.br"></div><div class="col-lg-3"><button class="btn btn-outline-dark w-100" type="submit"><i class="bi bi-check2-circle me-1"></i>Salvar origem</button></div></form>
-  </div></div>
-  <div class="admin-grid admin-grid-3"><article class="metric-card"><span>Total importado</span><strong>{{ wp.total_wp_posts }}</strong></article><article class="metric-card"><span>Imagens locais</span><strong>{{ wp.localized_images }}</strong></article><article class="metric-card"><span>Imagens externas</span><strong>{{ wp.external_images }}</strong></article></div>
-  <div class="card shadow-sm border-0 mt-4"><div class="card-body d-flex flex-wrap gap-3 align-items-center justify-content-between"><div><h5 class="mb-1">Importação completa</h5><p class="text-muted mb-0">Busca todas as páginas de posts e categorias, salva no banco e baixa capa + imagens do conteúdo para o volume persistente.</p></div><div class="d-flex flex-wrap gap-2"><form method="post" action="{{ url_for('admin.wordpress_sync_page') }}"><button class="btn btn-dark" type="submit"><i class="bi bi-cloud-download me-1"></i>Puxar todas as matérias</button></form><form method="post" action="{{ url_for('admin.wordpress_localize_images') }}"><button class="btn btn-outline-dark" type="submit"><i class="bi bi-images me-1"></i>Baixar imagens pendentes</button></form></div></div></div>
-  <div class="card shadow-sm border-0 mt-4"><div class="card-body"><div class="d-flex justify-content-between align-items-center mb-3"><div><h5 class="mb-1">Últimas matérias importadas</h5><p class="text-muted mb-0">As imagens marcadas como Local já estão salvas no /data.</p></div><span class="badge text-bg-light">Sem imagem: {{ wp.without_images }}</span></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Matéria</th><th>Imagem</th><th>Data</th><th>Status</th></tr></thead><tbody>{% for post in wp.recent_posts %}<tr><td><div class="fw-semibold">{{ post.title }}</div><div class="small text-muted">/{{ post.slug }}</div></td><td class="small text-break">{{ post.featured_image or 'Sem imagem' }}</td><td>{{ format_date_br(post.published_at) }}</td><td>{% if post.featured_image and post.featured_image.startswith('/media/') %}<span class="badge text-bg-success">Local</span>{% elif post.featured_image %}<span class="badge text-bg-warning">Externa</span>{% else %}<span class="badge text-bg-secondary">Sem imagem</span>{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted py-4">Nenhuma matéria importada ainda.</td></tr>{% endfor %}</tbody></table></div></div></div>
+<section class="admin-section wp-import-center" id="wpImportCenter"
+         data-status-url="{{ url_for('admin.wordpress_import_status') }}"
+         data-sync-url="{{ url_for('admin.wordpress_sync_page') }}"
+         data-cancel-url="{{ url_for('admin.wordpress_cancel_import') }}">
+
+  <div class="wp-source-card">
+    <div class="wp-source-card__head">
+      <div>
+        <span class="wp-kicker"><i class="bi bi-wordpress"></i> Fonte de dados</span>
+        <h4>WordPress de origem</h4>
+        <p>Informe a URL principal do site. O importador consulta a API, identifica o total de conteúdo e traz tudo para o banco + <code>/data</code>.</p>
+      </div>
+      <span class="wp-source-status"><i class="bi bi-database-check"></i> Persistência local ativa</span>
+    </div>
+    <form class="row g-2 align-items-end" method="post" action="{{ url_for('admin.wordpress_save_source') }}">
+      <div class="col-lg-9">
+        <label class="form-label">URL do WordPress</label>
+        <div class="input-group input-group-lg">
+          <span class="input-group-text"><i class="bi bi-globe2"></i></span>
+          <input class="form-control" type="url" name="wp_base_url" value="{{ wp.base_url }}" required placeholder="https://site-do-cliente.com.br">
+        </div>
+      </div>
+      <div class="col-lg-3"><button class="btn btn-outline-dark btn-lg w-100" type="submit"><i class="bi bi-check2-circle me-1"></i>Salvar origem</button></div>
+    </form>
+  </div>
+
+  <div class="wp-overview-grid mt-4">
+    <article class="wp-overview-card"><span><i class="bi bi-newspaper"></i> Já no Portal</span><strong id="metricImportedDb">{{ wp.total_wp_posts }}</strong><small>matérias do WordPress salvas</small></article>
+    <article class="wp-overview-card"><span><i class="bi bi-image"></i> Capas locais</span><strong id="metricLocalImages">{{ wp.localized_images }}</strong><small>arquivos persistidos no /data</small></article>
+    <article class="wp-overview-card"><span><i class="bi bi-cloud"></i> Capas externas</span><strong id="metricExternalImages">{{ wp.external_images }}</strong><small>ainda dependem da origem</small></article>
+    <article class="wp-overview-card"><span><i class="bi bi-image-alt"></i> Sem capa</span><strong id="metricNoImages">{{ wp.without_images }}</strong><small>matérias sem imagem destacada</small></article>
+  </div>
+
+  <div class="wp-import-panel mt-4">
+    <div class="wp-import-panel__top">
+      <div>
+        <span class="wp-kicker"><i class="bi bi-arrow-repeat"></i> Importação inteligente</span>
+        <h4>Importar todo o WordPress</h4>
+        <p>O processo roda em segundo plano, salva progresso no banco a cada matéria e continua mesmo se você sair desta tela.</p>
+      </div>
+      <div class="wp-import-actions">
+        <button class="btn btn-dark btn-lg" type="button" id="startWpImport"><i class="bi bi-cloud-arrow-down me-1"></i> Importar tudo</button>
+        <button class="btn btn-outline-danger btn-lg d-none" type="button" id="cancelWpImport"><i class="bi bi-stop-circle me-1"></i> Cancelar</button>
+      </div>
+    </div>
+
+    <div class="wp-job-status" id="wpJobStatus">
+      <div class="wp-job-status__headline">
+        <div class="wp-job-status__state">
+          <span class="wp-status-dot" id="wpStatusDot"></span>
+          <div>
+            <strong id="wpStatusTitle">Pronto para importar</strong>
+            <small id="wpStatusPhase">Clique em “Importar tudo” para analisar o site de origem.</small>
+          </div>
+        </div>
+        <div class="wp-job-status__percent"><strong id="wpPercent">0%</strong><small id="wpRemaining">Aguardando</small></div>
+      </div>
+      <div class="wp-progress-track"><div class="wp-progress-bar" id="wpProgressBar" style="width:0%"></div></div>
+
+      <div class="wp-progress-grid">
+        <div><span>Total encontrado</span><strong id="wpTotalPosts">—</strong><small>matérias publicadas</small></div>
+        <div><span>Processadas</span><strong id="wpProcessedPosts">0</strong><small id="wpPageInfo">página —</small></div>
+        <div><span>Novas</span><strong id="wpNewPosts">0</strong><small>criadas no portal</small></div>
+        <div><span>Atualizadas</span><strong id="wpUpdatedPosts">0</strong><small>já existentes</small></div>
+        <div><span>Sem alterações</span><strong id="wpSkippedPosts">0</strong><small>reaproveitadas sem baixar de novo</small></div>
+        <div><span>Falhas</span><strong id="wpFailedPosts">0</strong><small>não interrompem o restante</small></div>
+        <div><span>Imagens locais</span><strong id="wpImageSuccess">0</strong><small id="wpImageFailure">0 falhas de imagem</small></div>
+      </div>
+
+      <div class="wp-current-item" id="wpCurrentItem">
+        <div class="wp-current-item__icon"><i class="bi bi-file-earmark-text"></i></div>
+        <div class="wp-current-item__body">
+          <span>Matéria processada neste momento</span>
+          <strong id="wpCurrentTitle">Nenhuma importação em andamento</strong>
+          <small id="wpCurrentMeta">O título atual aparecerá aqui em tempo real.</small>
+        </div>
+        <div class="wp-live-pill" id="wpLivePill"><span></span> offline</div>
+      </div>
+
+      <div class="wp-job-meta">
+        <span><i class="bi bi-tags"></i> Categorias: <b id="wpCategories">0 / 0</b></span>
+        <span><i class="bi bi-stopwatch"></i> Tempo: <b id="wpElapsed">—</b></span>
+        <span><i class="bi bi-hourglass-split"></i> Estimativa: <b id="wpEta">—</b></span>
+        <span><i class="bi bi-heart-pulse"></i> Atividade: <b id="wpHeartbeat">—</b></span>
+      </div>
+      <div class="alert alert-danger mt-3 mb-0 d-none" id="wpJobError"></div>
+    </div>
+  </div>
+
+  <div class="row g-4 mt-1">
+    <div class="col-xl-7">
+      <div class="wp-log-card h-100">
+        <div class="wp-card-head"><div><h5>Atividade da importação</h5><p>Últimos eventos gravados. Se uma matéria falhar, o importador registra o erro e segue para a próxima.</p></div><span class="badge rounded-pill text-bg-light" id="wpJobId">Sem execução</span></div>
+        <div class="wp-log-list" id="wpLogList">
+          <div class="wp-log-empty"><i class="bi bi-clock-history"></i><span>Nenhuma atividade registrada nesta execução.</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl-5">
+      <div class="wp-health-card h-100">
+        <div class="wp-card-head"><div><h5>Proteções do importador</h5><p>Recursos aplicados para evitar aquele cenário de “parece que travou”.</p></div></div>
+        <div class="wp-health-list">
+          <div><i class="bi bi-check2-circle"></i><span><b>Execução em segundo plano</b><small>A requisição do navegador não fica presa esperando milhares de matérias.</small></span></div>
+          <div><i class="bi bi-check2-circle"></i><span><b>Checkpoint por matéria</b><small>Cada item é salvo individualmente; uma falha não perde tudo que já foi importado.</small></span></div>
+          <div><i class="bi bi-check2-circle"></i><span><b>Detecção de duplicados</b><small>Reaproveita registros por ID, URL e slug antes de criar novos.</small></span></div>
+          <div><i class="bi bi-check2-circle"></i><span><b>Continua após erro</b><small>Problemas isolados ficam no histórico e não abortam a fila inteira.</small></span></div>
+          <div><i class="bi bi-check2-circle"></i><span><b>Heartbeat</b><small>A tela mostra quando o servidor atualizou o progresso pela última vez.</small></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0 mt-4">
+    <div class="card-body d-flex flex-wrap gap-3 align-items-center justify-content-between">
+      <div><h5 class="mb-1">Manutenção de imagens</h5><p class="text-muted mb-0">Use depois da importação para tentar novamente capas e imagens que ainda estiverem externas.</p></div>
+      <form method="post" action="{{ url_for('admin.wordpress_localize_images') }}"><button class="btn btn-outline-dark" type="submit"><i class="bi bi-images me-1"></i>Baixar imagens pendentes</button></form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0 mt-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3"><div><h5 class="mb-1">Últimas matérias salvas</h5><p class="text-muted mb-0">Visão rápida do que já está efetivamente no banco do Portal Trivox.</p></div><span class="badge text-bg-light">Sem imagem: <span id="recentNoImages">{{ wp.without_images }}</span></span></div>
+      <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Matéria</th><th>Imagem</th><th>Data</th><th>Status</th></tr></thead><tbody>{% for post in wp.recent_posts %}<tr><td><div class="fw-semibold">{{ post.title }}</div><div class="small text-muted">/{{ post.slug }}</div></td><td class="small text-break">{{ post.featured_image or 'Sem imagem' }}</td><td>{{ format_date_br(post.published_at) }}</td><td>{% if post.featured_image and post.featured_image.startswith('/media/') %}<span class="badge text-bg-success">Local</span>{% elif post.featured_image %}<span class="badge text-bg-warning">Externa</span>{% else %}<span class="badge text-bg-secondary">Sem imagem</span>{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted py-4">Nenhuma matéria importada ainda.</td></tr>{% endfor %}</tbody></table></div>
+    </div>
+  </div>
 </section>
+
+<script>
+(() => {
+  const root = document.getElementById('wpImportCenter');
+  if (!root) return;
+  const $ = (id) => document.getElementById(id);
+  const initialJob = {{ (wp.job or none)|tojson }};
+  let currentJobId = initialJob ? initialJob.id : null;
+  let timer = null;
+
+  const fmtDuration = (seconds) => {
+    if (seconds === null || seconds === undefined) return '—';
+    seconds = Math.max(0, Number(seconds) || 0);
+    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = Math.floor(seconds % 60);
+    if (h) return `${h}h ${m}min`;
+    if (m) return `${m}min ${s}s`;
+    return `${s}s`;
+  };
+  const escapeHtml = (v) => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+
+  function renderLogs(logs) {
+    const box = $('wpLogList');
+    if (!logs || !logs.length) {
+      box.innerHTML = '<div class="wp-log-empty"><i class="bi bi-clock-history"></i><span>Nenhuma atividade registrada nesta execução.</span></div>';
+      return;
+    }
+    box.innerHTML = logs.map(log => {
+      const icon = log.status === 'error' ? 'bi-exclamation-triangle' : (log.status === 'imported' ? 'bi-plus-circle' : (log.status === 'updated' ? 'bi-arrow-repeat' : 'bi-info-circle'));
+      return `<div class="wp-log-row wp-log-row--${escapeHtml(log.status)}"><i class="bi ${icon}"></i><div><strong>${escapeHtml(log.title || log.message || 'Importador')}</strong><small>${escapeHtml(log.message || '')}${log.wp_id ? ` · WP #${log.wp_id}` : ''}</small></div></div>`;
+    }).join('');
+  }
+
+  function renderJob(job) {
+    if (!job) return;
+    currentJobId = job.id;
+    const running = ['queued','running'].includes(job.status);
+    const completed = job.status === 'completed';
+    const failed = job.status === 'failed';
+    const cancelled = job.status === 'cancelled';
+    root.classList.toggle('is-importing', running);
+    $('startWpImport').disabled = running;
+    $('startWpImport').innerHTML = running ? '<span class="spinner-border spinner-border-sm me-2"></span>Importando...' : '<i class="bi bi-cloud-arrow-down me-1"></i> Importar tudo';
+    $('cancelWpImport').classList.toggle('d-none', !running);
+    $('wpStatusDot').className = 'wp-status-dot ' + (running ? 'is-running' : completed ? 'is-success' : (failed || cancelled) ? 'is-error' : '');
+    $('wpStatusTitle').textContent = running ? 'Importação em andamento' : completed ? 'Importação concluída' : failed ? 'Importação interrompida' : cancelled ? 'Importação cancelada' : 'Pronto para importar';
+    $('wpStatusPhase').textContent = job.phase || 'Aguardando';
+    $('wpPercent').textContent = `${Number(job.percent || 0).toFixed(1).replace('.0','')}%`;
+    $('wpProgressBar').style.width = `${Math.max(0, Math.min(100, Number(job.percent || 0)))}%`;
+    const remaining = Math.max(0, Number(job.total_posts || 0) - Number(job.processed_posts || 0));
+    $('wpRemaining').textContent = job.total_posts ? `${remaining} restantes` : (running ? 'Analisando origem...' : 'Aguardando');
+    $('wpTotalPosts').textContent = job.total_posts || (running ? '...' : '—');
+    $('wpProcessedPosts').textContent = job.processed_posts || 0;
+    $('wpNewPosts').textContent = job.imported_posts || 0;
+    $('wpUpdatedPosts').textContent = job.updated_posts || 0;
+    $('wpSkippedPosts').textContent = job.skipped_posts || 0;
+    $('wpFailedPosts').textContent = job.failed_posts || 0;
+    $('wpImageSuccess').textContent = job.image_successes || 0;
+    $('wpImageFailure').textContent = `${job.image_failures || 0} falhas de imagem`;
+    $('wpPageInfo').textContent = job.total_pages ? `página ${job.current_page || 0} de ${job.total_pages}` : 'calculando páginas';
+    $('wpCategories').textContent = `${job.processed_categories || 0} / ${job.total_categories || 0}`;
+    $('wpElapsed').textContent = fmtDuration(job.elapsed_seconds);
+    $('wpEta').textContent = running && job.eta_seconds !== null ? `~ ${fmtDuration(job.eta_seconds)}` : (completed ? 'Concluída' : '—');
+    const age = Number(job.heartbeat_age || 0);
+    $('wpHeartbeat').textContent = running ? (age < 10 ? 'agora' : `há ${fmtDuration(age)}`) : 'finalizado';
+    $('wpCurrentTitle').textContent = job.current_title || (completed ? 'Todas as matérias da fila foram processadas.' : failed ? 'O processo foi interrompido.' : 'Nenhuma matéria sendo processada agora.');
+    $('wpCurrentMeta').textContent = job.current_wp_id ? `WordPress #${job.current_wp_id} · página ${job.current_page || '—'} de ${job.total_pages || '—'}` : `Execução #${job.id}`;
+    $('wpJobId').textContent = `Execução #${job.id}`;
+    const live = $('wpLivePill');
+    live.classList.toggle('is-live', running && age < 120);
+    live.innerHTML = `<span></span> ${running ? (age < 120 ? 'ao vivo' : 'sem atualização') : (completed ? 'concluída' : 'offline')}`;
+    const err = $('wpJobError');
+    if (job.error_message) { err.textContent = job.error_message; err.classList.remove('d-none'); } else { err.classList.add('d-none'); }
+    renderLogs(job.logs || []);
+  }
+
+  function renderStats(stats) {
+    if (!stats) return;
+    $('metricImportedDb').textContent = stats.total_wp_posts ?? 0;
+    $('metricLocalImages').textContent = stats.localized_images ?? 0;
+    $('metricExternalImages').textContent = stats.external_images ?? 0;
+    $('metricNoImages').textContent = stats.without_images ?? 0;
+    $('recentNoImages').textContent = stats.without_images ?? 0;
+  }
+
+  async function poll() {
+    try {
+      const suffix = currentJobId ? `?job_id=${encodeURIComponent(currentJobId)}` : '';
+      const response = await fetch(root.dataset.statusUrl + suffix, {headers:{'Accept':'application/json'}, cache:'no-store'});
+      if (!response.ok) return;
+      const data = await response.json();
+      renderJob(data.job); renderStats(data.stats);
+      if (data.job && ['queued','running'].includes(data.job.status)) {
+        timer = setTimeout(poll, 1800);
+      } else {
+        timer = setTimeout(poll, 8000);
+      }
+    } catch (_) {
+      timer = setTimeout(poll, 5000);
+    }
+  }
+
+  $('startWpImport').addEventListener('click', async () => {
+    if (!confirm('Importar todas as matérias, categorias e imagens do WordPress agora?')) return;
+    $('startWpImport').disabled = true;
+    $('startWpImport').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Iniciando...';
+    try {
+      const response = await fetch(root.dataset.syncUrl, {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+      const data = await response.json();
+      if (data.job) renderJob(data.job);
+      if (!response.ok && !data.job) alert(data.message || 'Não foi possível iniciar a importação.');
+      clearTimeout(timer); poll();
+    } catch (e) {
+      alert('Não foi possível iniciar a importação agora.');
+      $('startWpImport').disabled = false;
+      $('startWpImport').innerHTML = '<i class="bi bi-cloud-arrow-down me-1"></i> Importar tudo';
+    }
+  });
+
+  $('cancelWpImport').addEventListener('click', async () => {
+    if (!confirm('Deseja cancelar a importação? O item atual pode terminar antes da parada.')) return;
+    try {
+      const response = await fetch(root.dataset.cancelUrl, {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+      const data = await response.json();
+      if (!response.ok) alert(data.message || 'Não foi possível cancelar.');
+      poll();
+    } catch (_) { alert('Não foi possível solicitar o cancelamento.'); }
+  });
+
+  if (initialJob) renderJob(initialJob);
+  poll();
+})();
+</script>
 {% endblock %}
