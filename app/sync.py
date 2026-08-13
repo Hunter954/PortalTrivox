@@ -111,14 +111,30 @@ def sync_categories(client: WPClient):
             break
 
         for c in data:
-            slug = c.get("slug") or slugify(c.get("name","cat"))
-            cat = Category.query.filter_by(wp_id=c["id"]).first()
-            if not cat:
-                cat = Category(wp_id=c["id"], slug=slug, name=c.get("name",""))
+            wp_id = c["id"]
+            slug = c.get("slug") or slugify(c.get("name", "cat"))
+            name = c.get("name", "")
+
+            # A categoria pode já existir no Portal Trivox antes da primeira
+            # sincronização (criada manualmente/seed) com o mesmo slug e sem
+            # wp_id. Procurar pelos dois identificadores evita tentar inserir
+            # outro registro com o mesmo slug e estourar ix_category_slug.
+            with db.session.no_autoflush:
+                cat = Category.query.filter_by(wp_id=wp_id).first()
+                slug_cat = Category.query.filter_by(slug=slug).first()
+
+            if cat is None and slug_cat is not None:
+                cat = slug_cat
+
+            if cat is None:
+                cat = Category(wp_id=wp_id, slug=slug, name=name)
                 db.session.add(cat)
             else:
+                # Se encontramos pelo slug, vinculamos a categoria já existente
+                # ao ID real do WordPress em vez de criar uma duplicada.
+                cat.wp_id = wp_id
                 cat.slug = slug
-                cat.name = c.get("name","")
+                cat.name = name
 
         db.session.commit()
         if len(data) < 100:
@@ -157,10 +173,22 @@ def sync_posts(client: WPClient, max_pages: int | None = None, per_page: int = 2
                         pass
                 content_safe = localize_content_images(content_safe)
 
-            post = Post.query.filter_by(wp_id=wp_id).first()
-            if not post:
+            # O mesmo princípio vale para matérias: se já existir um post
+            # local/demo com o mesmo slug, reaproveitamos esse registro e o
+            # vinculamos ao WordPress para não violar o índice único de slug.
+            with db.session.no_autoflush:
+                post = Post.query.filter_by(wp_id=wp_id).first()
+                slug_post = Post.query.filter_by(slug=slug).first()
+
+            if post is None and slug_post is not None:
+                post = slug_post
+
+            if post is None:
                 post = Post(wp_id=wp_id, source="wp", slug=slug, title=title)
                 db.session.add(post)
+            else:
+                post.wp_id = wp_id
+                post.source = "wp"
 
             post.title = title
             post.slug = slug
