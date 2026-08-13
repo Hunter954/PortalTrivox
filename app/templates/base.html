@@ -16,7 +16,7 @@
 <body>
 <header class="site-header">
   <div class="utility"><div class="shell utility__inner"><span><i class="bi bi-geo-alt-fill"></i> Foz do Iguaçu • Oeste do Paraná • Tríplice Fronteira</span><div class="utility__actions">{% for key,link in social_links.items() %}{% if link %}<a href="{{ link }}" target="_blank" rel="noopener" aria-label="{{ key }}"><i class="bi bi-{{ 'twitter-x' if key=='x' else key }}"></i></a>{% endif %}{% endfor %}</div></div></div>
-  <div class="shell brand-row{% if request.endpoint != 'site.home' %} brand-row--internal{% endif %}">
+  <div class="shell brand-row">
     <a class="brand" href="{{ url_for('site.home') }}"><img src="{{ logo_url or url_for('static', filename='img/logo-trivox.svg') }}" alt="{{ site_name_value }}"></a>
     <div class="header-market market market--desktop" aria-label="Cotação e temperatura atuais">
       <div class="market-card market-card--dollar"><small>DÓLAR COMERCIAL</small><div class="market-value-row"><strong data-dollar-value>R$ --</strong><i class="bi bi-graph-up-arrow market-dollar-icon"></i></div><span class="market-change" data-dollar-change>--%</span></div>
@@ -29,8 +29,8 @@
 </header>
 <main class="shell main-content">{% block content %}{% endblock %}</main>
 <footer class="site-footer">
-  <div class="shell footer-grid"><div><img class="footer-logo" src="{{ logo_url or url_for('static', filename='img/logo-trivox-white.svg') }}" alt="{{ site_name_value }}"><p>As principais notícias de Foz do Iguaçu, Oeste do Paraná e Tríplice Fronteira.</p><div class="footer-social">{% for key,link in social_links.items() %}{% if link %}<a href="{{ link }}" target="_blank"><i class="bi bi-{{ 'twitter-x' if key=='x' else key }}"></i></a>{% endif %}{% endfor %}</div></div><div><h4>NAVEGAÇÃO</h4><a href="{{ url_for('site.home') }}">Início</a>{% for cat in nav_categories[:6] %}<a href="{{ url_for('site.category', slug=cat.slug) }}">{{ cat.name }}</a>{% endfor %}</div><div><h4>INSTITUCIONAL</h4><a href="#">Sobre nós</a><a href="#">Expediente</a><a href="{{ footer_links.privacy.url or '#' }}">{{ footer_links.privacy.label }}</a><a href="{{ footer_links.terms.url or '#' }}">{{ footer_links.terms.label }}</a><a href="{{ footer_links.contact.url or '#' }}">{{ footer_links.contact.label }}</a></div><div><h4>CATEGORIAS</h4>{% for cat in nav_categories[6:12] %}<a href="{{ url_for('site.category', slug=cat.slug) }}">{{ cat.name }}</a>{% endfor %}</div></div>
-  <div class="shell copyright"><span>{{ footer_copyright_text }}</span><span>CNPJ: 66.549.884/0001-46</span></div>
+  <div class="shell footer-grid"><div><img class="footer-brand-logo" src="{{ logo_url or url_for('static', filename='img/logo-trivox.svg') }}" alt="{{ site_name_value }}"><p>As principais notícias de Foz do Iguaçu, Oeste do Paraná e Tríplice Fronteira.</p><div class="footer-social">{% for key,link in social_links.items() %}{% if link %}<a href="{{ link }}" target="_blank"><i class="bi bi-{{ 'twitter-x' if key=='x' else key }}"></i></a>{% endif %}{% endfor %}</div></div><div><h4>NAVEGAÇÃO</h4><a href="{{ url_for('site.home') }}">Início</a>{% for cat in nav_categories[:6] %}<a href="{{ url_for('site.category', slug=cat.slug) }}">{{ cat.name }}</a>{% endfor %}</div><div><h4>INSTITUCIONAL</h4><a href="#">Sobre nós</a><a href="#">Expediente</a><a href="{{ footer_links.privacy.url or '#' }}">{{ footer_links.privacy.label }}</a><a href="{{ footer_links.terms.url or '#' }}">{{ footer_links.terms.label }}</a><a href="{{ footer_links.contact.url or '#' }}">{{ footer_links.contact.label }}</a></div><div><h4>CATEGORIAS</h4>{% for cat in nav_categories[6:12] %}<a href="{{ url_for('site.category', slug=cat.slug) }}">{{ cat.name }}</a>{% endfor %}</div></div>
+  <div class="shell copyright">{{ footer_copyright_text }}</div>
 </footer>
 <script src="{{ url_for('static', filename='js/site.js') }}"></script>
 </body></html>

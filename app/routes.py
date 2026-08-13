@@ -207,7 +207,6 @@ def inject_site_globals():
         "site_name_value": _site_name(),
         "favicon_url": _setting("favicon_url", ""),
         "ad_home_bottom": _get_ad("home_bottom"),
-        "ad_header": _get_ad("header_top"),
         "clean_text": _clean_text,
         "format_date_br": _format_date_br,
         "display_category_name": _display_category_name,
@@ -808,6 +807,7 @@ def category(slug):
         cat=cat,
         **meta,
         pagination=pagination,
+        ad_header=_get_ad("header_top"),
     )
 
 
@@ -836,4 +836,5 @@ def search():
         term=term,
         **meta,
         pagination=pagination,
+        ad_header=_get_ad("header_top"),
     )

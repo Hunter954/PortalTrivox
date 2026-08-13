@@ -134,12 +134,10 @@ def _parse_ad_slot_payload(raw: str | None) -> dict | None:
 
 def _default_slot_layout_meta() -> dict:
     return {
-        'header_top': {'label':'Banner do cabeçalho','hint':'Ao lado da logomarca; aparece em todas as páginas públicas','shape':'rectangle','dimensions':'728 × 90 px'},
-        'sidebar_1': {'label':'Banner lateral grande da home','hint':'Primeiro banner ao lado da matéria em destaque','shape':'portrait','dimensions':'300 × 400 px'},
-        'sidebar_2': {'label':'Banner lateral pequeno da home','hint':'Segundo banner ao lado da matéria em destaque','shape':'rectangle','dimensions':'300 × 180 px'},
-        'home_top': {'label':'Banner horizontal da home','hint':'Abaixo do bloco de Últimas notícias','shape':'wide','dimensions':'970 × 180 px'},
-        'home_bottom': {'label':'Slot legado não utilizado','hint':'Mantido apenas para compatibilidade','shape':'wide','dimensions':'970 × 180 px'},
-        'home_mid': {'label':'Slot legado não utilizado','hint':'Mantido apenas para compatibilidade','shape':'wide','dimensions':'970 × 180 px'},
+        'header_top': {'label':'Banner do cabeçalho','hint':'Ao lado da logomarca em todas as páginas','shape':'rectangle','dimensions':'728 × 90 px'},
+        'home_top': {'label':'Banner horizontal da home','hint':'Abaixo de Últimas Notícias, antes das categorias','shape':'wide','dimensions':'970 × 180 px'},
+        'sidebar_1': {'label':'Banner lateral grande da home','hint':'Ao lado direito da matéria em destaque; aproximadamente 2x a altura do segundo banner','shape':'square','dimensions':'300 × 300 px'},
+        'sidebar_2': {'label':'Banner lateral menor da home','hint':'Abaixo do banner lateral grande','shape':'rectangle','dimensions':'300 × 140 px'},
     }
 
 
@@ -1651,6 +1649,26 @@ def hub_posts_push_all():
     return redirect(url_for('admin.hub_posts_page'))
 
 
+def _wp_source_url():
+    return (_setting("wp_base_url", "") or current_app.config.get("WP_BASE_URL", "")).strip().rstrip("/")
+
+
+@admin_bp.post("/wordpress/source")
+@login_required
+def wordpress_save_source():
+    r = _require_admin()
+    if r:
+        return r
+    value = (request.form.get("wp_base_url") or "").strip().rstrip("/")
+    if not value.startswith(("http://", "https://")):
+        flash("Informe uma URL válida começando com http:// ou https://.", "danger")
+        return redirect(url_for("admin.wordpress_manager"))
+    _save_setting("wp_base_url", value)
+    db.session.commit()
+    flash("Origem do WordPress salva.", "success")
+    return redirect(url_for("admin.wordpress_manager"))
+
+
 @admin_bp.get("/wordpress")
 @login_required
 def wordpress_manager():
@@ -1658,6 +1676,7 @@ def wordpress_manager():
     if r:
         return r
     stats = _wp_stats()
+    stats["base_url"] = _wp_source_url()
     return render_template("admin/wordpress.html", wp=stats, **_common_admin_context("wordpress"))
 
 
@@ -1668,7 +1687,7 @@ def wordpress_sync_page():
     if r:
         return r
     try:
-        client = WPClient(current_app.config["WP_BASE_URL"])
+        client = WPClient(_wp_source_url())
         sync_categories(client)
         sync_posts(client, max_pages=None, per_page=current_app.config["WP_PER_PAGE"], download_images=True)
         flash("Importação do WordPress concluída com imagens salvas no servidor.", "success")
@@ -1714,7 +1733,7 @@ def sync_wp_now():
     if r:
         return r
     try:
-        client = WPClient(current_app.config["WP_BASE_URL"])
+        client = WPClient(_wp_source_url())
         sync_categories(client)
         sync_posts(client, max_pages=None, per_page=current_app.config["WP_PER_PAGE"], download_images=True)
         flash("Sincronização do WordPress concluída.", "success")

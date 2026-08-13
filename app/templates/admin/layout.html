@@ -31,6 +31,7 @@
         <a class="admin-nav-link {% if section in ['settings'] %}active{% endif %}" href="{{ url_for('admin.settings_page') }}"><i class="bi bi-sliders"></i><span>Configurações / SEO</span></a>
         <a class="admin-nav-link {% if section=='footer_social' %}active{% endif %}" href="{{ url_for('admin.footer_social_page') }}"><i class="bi bi-share"></i><span>Rodapé / Redes sociais</span></a>
         <a class="admin-nav-link {% if section=='ads' %}active{% endif %}" href="{{ url_for('admin.ads_editor') }}"><i class="bi bi-badge-ad"></i><span>Publicidade</span></a>
+        <a class="admin-nav-link {% if section=='wordpress' %}active{% endif %}" href="{{ url_for('admin.wordpress_manager') }}"><i class="bi bi-wordpress"></i><span>Importar do WordPress</span></a>
       </nav>
 
       <div class="admin-sidebar-footer">
