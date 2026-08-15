@@ -19,6 +19,7 @@ from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, pos
 from .sync import download_external_image
 from .forms import LoginForm, AdSlotForm, CategoryForm, PostAdminForm
 from .wp_client import WPClient
+from .social_whatsapp import auto_send_post_to_whatsapp
 from .sync import sync_categories, sync_posts, localize_existing_wp_images, upsert_category, upsert_wp_post
 from html import unescape
 
@@ -743,6 +744,14 @@ def posts_new():
             post.categories = Category.query.filter(Category.id.in_(selected_ids)).all()
         db.session.add(post)
         db.session.commit()
+        if post.published_at and post.published_at <= _now_brazil():
+            wa_result = auto_send_post_to_whatsapp(post)
+            if not wa_result.ok:
+                current_app.logger.warning('Falha no envio automático da matéria %s ao WhatsApp: %s', post.id, wa_result.message)
+                flash(f'Matéria criada, mas o envio para o WhatsApp falhou: {wa_result.message}', 'warning')
+            else:
+                flash('Matéria criada e enviada para o WhatsApp do Portal Trivox.', 'success')
+                return redirect(url_for('admin.posts_edit', post_id=post.id))
         flash('Matéria criada com sucesso.', 'success')
         return redirect(url_for('admin.posts_edit', post_id=post.id))
     return render_template('admin/post_form.html', form=form, mode='new', post=None, hub=_hub_config(), now_brazil=_now_brazil(), **_common_admin_context('posts'))
@@ -755,6 +764,7 @@ def posts_edit(post_id):
     if r:
         return r
     post = Post.query.get_or_404(post_id)
+    was_published = bool(post.published_at and post.published_at <= _now_brazil())
     form = PostAdminForm()
     _bind_post_form_choices(form)
     if request.method == 'GET':
@@ -782,6 +792,15 @@ def posts_edit(post_id):
         db.session.commit()
         if form.featured_image_file.data and old_image and old_image != post.featured_image:
             _delete_local_media(old_image)
+        is_published_now = bool(post.published_at and post.published_at <= _now_brazil())
+        if is_published_now and not was_published:
+            wa_result = auto_send_post_to_whatsapp(post)
+            if not wa_result.ok:
+                current_app.logger.warning('Falha no envio automático da matéria %s ao WhatsApp: %s', post.id, wa_result.message)
+                flash(f'Matéria publicada, mas o envio para o WhatsApp falhou: {wa_result.message}', 'warning')
+            else:
+                flash('Matéria publicada e enviada para o WhatsApp do Portal Trivox.', 'success')
+                return redirect(url_for('admin.posts_edit', post_id=post.id))
         flash('Matéria atualizada com sucesso.', 'success')
         return redirect(url_for('admin.posts_edit', post_id=post.id))
     return render_template('admin/post_form.html', form=form, mode='edit', post=post, hub=_hub_config(), now_brazil=_now_brazil(), **_common_admin_context('posts'))
