@@ -67,7 +67,9 @@ def _slugify(value: str) -> str:
 
 
 def _ensure_unique_slug(model, desired: str, object_id=None) -> str:
-    base = _slugify(desired)
+    # Post.slug possui limite de 220 caracteres no banco. Títulos longos não podem
+    # derrubar a publicação com Value too long no PostgreSQL.
+    base = _slugify(desired)[:210].strip("-") or f"item-{uuid4().hex[:8]}"
     slug = base
     i = 2
     while True:
@@ -75,7 +77,8 @@ def _ensure_unique_slug(model, desired: str, object_id=None) -> str:
         obj = q.first()
         if not obj or (object_id and getattr(obj, "id", None) == object_id):
             return slug
-        slug = f"{base}-{i}"
+        suffix = f"-{i}"
+        slug = f"{base[:220-len(suffix)].rstrip('-')}{suffix}"
         i += 1
 
 
@@ -721,39 +724,64 @@ def posts_new():
     form = PostAdminForm()
     _bind_post_form_choices(form)
     if form.validate_on_submit():
-        image_url = _save_upload(form.featured_image_file.data, 'posts') if form.featured_image_file.data else ''
-        action = (request.form.get('post_action') or 'publish').strip().lower()
-        post = Post(
-            source='local',
-            title=(form.title.data or '').strip(),
-            slug=_ensure_unique_slug(Post, form.title.data or 'materia'),
-            excerpt=(form.excerpt.data or '').strip() or None,
-            content_html=(form.content_html.data or '').strip() or None,
-            featured_image=image_url or None,
-            featured_image_credit=(form.featured_image_credit.data or '').strip() or None,
-            author_name=(getattr(current_user, 'name', None) or current_user.email),
-            updated_at=_now_brazil(),
-        )
-        if action == 'publish':
-            publish_at = _parse_schedule_datetime(request.form.get('published_at'))
-            post.published_at = publish_at or _now_brazil()
-        else:
-            post.published_at = None
-        selected_ids = form.categories.data or []
-        if selected_ids:
-            post.categories = Category.query.filter(Category.id.in_(selected_ids)).all()
-        db.session.add(post)
-        db.session.commit()
-        if post.published_at and post.published_at <= _now_brazil():
-            wa_result = auto_send_post_to_whatsapp(post)
-            if not wa_result.ok:
-                current_app.logger.warning('Falha no envio automático da matéria %s ao WhatsApp: %s', post.id, wa_result.message)
-                flash(f'Matéria criada, mas o envio para o WhatsApp falhou: {wa_result.message}', 'warning')
+        image_url = ''
+        try:
+            image_url = _save_upload(form.featured_image_file.data, 'posts') if form.featured_image_file.data else ''
+            action = (request.form.get('post_action') or 'publish').strip().lower()
+            post = Post(
+                source='local',
+                title=(form.title.data or '').strip(),
+                slug=_ensure_unique_slug(Post, form.title.data or 'materia'),
+                excerpt=(form.excerpt.data or '').strip() or None,
+                content_html=(form.content_html.data or '').strip() or None,
+                featured_image=image_url or None,
+                featured_image_credit=(form.featured_image_credit.data or '').strip() or None,
+                author_name=(getattr(current_user, 'name', None) or current_user.email),
+                updated_at=_now_brazil(),
+            )
+            if action == 'publish':
+                publish_at = _parse_schedule_datetime(request.form.get('published_at'))
+                post.published_at = publish_at or _now_brazil()
             else:
-                flash('Matéria criada e enviada para o WhatsApp do Portal Trivox.', 'success')
-                return redirect(url_for('admin.posts_edit', post_id=post.id))
-        flash('Matéria criada com sucesso.', 'success')
+                post.published_at = None
+            selected_ids = form.categories.data or []
+            if selected_ids:
+                post.categories = Category.query.filter(Category.id.in_(selected_ids)).all()
+            db.session.add(post)
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            if image_url:
+                _delete_local_media(image_url)
+            current_app.logger.exception('Falha ao salvar/publicar matéria pelo admin')
+            flash(f'Não foi possível salvar a matéria: {str(exc)[:220]}', 'danger')
+            return render_template('admin/post_form.html', form=form, mode='new', post=None, hub=_hub_config(), now_brazil=_now_brazil(), **_common_admin_context('posts'))
+
+        # A publicação no banco é definitiva antes de chamar qualquer serviço externo.
+        # Uma falha no WhatsApp jamais pode impedir a matéria de ser publicada.
+        if post.published_at and post.published_at <= _now_brazil():
+            try:
+                wa_result = auto_send_post_to_whatsapp(post)
+                if not wa_result.ok:
+                    current_app.logger.warning('Falha no envio automático da matéria %s ao WhatsApp: %s', post.id, wa_result.message)
+                    flash(f'Matéria criada, mas o envio para o WhatsApp falhou: {wa_result.message}', 'warning')
+                else:
+                    flash('Matéria criada e enviada para o WhatsApp do Portal Trivox.', 'success')
+            except Exception as exc:
+                current_app.logger.exception('Matéria %s foi publicada, mas o WhatsApp falhou', post.id)
+                flash(f'Matéria publicada. O envio para o WhatsApp falhou: {str(exc)[:180]}', 'warning')
+        else:
+            flash('Matéria salva com sucesso.', 'success')
         return redirect(url_for('admin.posts_edit', post_id=post.id))
+    elif request.method == 'POST':
+        errors = []
+        for field_name, messages in form.errors.items():
+            field = getattr(form, field_name, None)
+            label = getattr(getattr(field, 'label', None), 'text', field_name)
+            for message in messages:
+                errors.append(f'{label}: {message}')
+        current_app.logger.warning('Formulário de matéria inválido: %s', ' | '.join(errors))
+        flash('Não foi possível publicar. ' + (' '.join(errors[:4]) if errors else 'Revise os campos do formulário.'), 'danger')
     return render_template('admin/post_form.html', form=form, mode='new', post=None, hub=_hub_config(), now_brazil=_now_brazil(), **_common_admin_context('posts'))
 
 
@@ -789,20 +817,42 @@ def posts_edit(post_id):
             post.published_at = None
         selected_ids = form.categories.data or []
         post.categories = Category.query.filter(Category.id.in_(selected_ids)).all() if selected_ids else []
-        db.session.commit()
+        new_uploaded_image = post.featured_image if form.featured_image_file.data and post.featured_image != old_image else ''
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            if new_uploaded_image:
+                _delete_local_media(new_uploaded_image)
+            current_app.logger.exception('Falha ao atualizar/publicar matéria %s', post_id)
+            flash(f'Não foi possível salvar a matéria: {str(exc)[:220]}', 'danger')
+            return render_template('admin/post_form.html', form=form, mode='edit', post=post, hub=_hub_config(), now_brazil=_now_brazil(), **_common_admin_context('posts'))
         if form.featured_image_file.data and old_image and old_image != post.featured_image:
             _delete_local_media(old_image)
         is_published_now = bool(post.published_at and post.published_at <= _now_brazil())
         if is_published_now and not was_published:
-            wa_result = auto_send_post_to_whatsapp(post)
-            if not wa_result.ok:
-                current_app.logger.warning('Falha no envio automático da matéria %s ao WhatsApp: %s', post.id, wa_result.message)
-                flash(f'Matéria publicada, mas o envio para o WhatsApp falhou: {wa_result.message}', 'warning')
-            else:
-                flash('Matéria publicada e enviada para o WhatsApp do Portal Trivox.', 'success')
-                return redirect(url_for('admin.posts_edit', post_id=post.id))
-        flash('Matéria atualizada com sucesso.', 'success')
+            try:
+                wa_result = auto_send_post_to_whatsapp(post)
+                if not wa_result.ok:
+                    current_app.logger.warning('Falha no envio automático da matéria %s ao WhatsApp: %s', post.id, wa_result.message)
+                    flash(f'Matéria publicada, mas o envio para o WhatsApp falhou: {wa_result.message}', 'warning')
+                else:
+                    flash('Matéria publicada e enviada para o WhatsApp do Portal Trivox.', 'success')
+            except Exception as exc:
+                current_app.logger.exception('Matéria %s foi publicada, mas o WhatsApp falhou', post.id)
+                flash(f'Matéria publicada. O envio para o WhatsApp falhou: {str(exc)[:180]}', 'warning')
+        else:
+            flash('Matéria atualizada com sucesso.', 'success')
         return redirect(url_for('admin.posts_edit', post_id=post.id))
+    elif request.method == 'POST':
+        errors = []
+        for field_name, messages in form.errors.items():
+            field = getattr(form, field_name, None)
+            label = getattr(getattr(field, 'label', None), 'text', field_name)
+            for message in messages:
+                errors.append(f'{label}: {message}')
+        current_app.logger.warning('Formulário de edição de matéria inválido: %s', ' | '.join(errors))
+        flash('Não foi possível salvar. ' + (' '.join(errors[:4]) if errors else 'Revise os campos do formulário.'), 'danger')
     return render_template('admin/post_form.html', form=form, mode='edit', post=post, hub=_hub_config(), now_brazil=_now_brazil(), **_common_admin_context('posts'))
 
 

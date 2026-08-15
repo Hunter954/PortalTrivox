@@ -8,7 +8,7 @@
   <section class="panel-card">
     <div class="panel-head"><div><h2>Conteúdo principal</h2><p>Monte a matéria com texto formatado e imagens dentro do conteúdo.</p></div></div>
     <div class="vstack gap-3">
-      <div><label class="form-label">Título</label>{{ form.title(class='form-control', placeholder='Digite o título da matéria') }}</div>
+      <div><label class="form-label">Título</label>{{ form.title(class='form-control', placeholder='Digite o título da matéria') }}{% for error in form.title.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}</div>
       <div><label class="form-label">Resumo</label>{{ form.excerpt(class='form-control', rows='4', placeholder='Linha fina / resumo da matéria') }}</div>
       <div>
         <label class="form-label">Conteúdo da matéria</label>
@@ -51,8 +51,8 @@
         <div class="small text-muted">Situação atual</div>
         <strong>{% if not post or not post.published_at %}Rascunho{% elif post.published_at > now_brazil %}Programada para {{ post.published_at.strftime('%d/%m/%Y %H:%M') }}{% else %}Publicado{% endif %}</strong>
       </div>
-      <div><label class="form-label">Categorias</label>{{ form.categories(class='form-select', multiple=true, size='8') }}</div>
-      <div><label class="form-label">Imagem destacada</label>{{ form.featured_image_file(class='form-control') }}<div class="form-help mt-1">Envie a imagem pelo computador.</div></div>
+      <div><label class="form-label">Categorias</label>{{ form.categories(class='form-select', multiple=true, size='8') }}{% for error in form.categories.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}</div>
+      <div><label class="form-label">Imagem destacada</label>{{ form.featured_image_file(class='form-control') }}{% for error in form.featured_image_file.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}<div class="form-help mt-1">Envie JPG, JPEG, PNG, WEBP, GIF ou SVG. Se houver erro, ele será mostrado aqui sem falhar silenciosamente.</div></div>
       <div><label class="form-label">Crédito da foto de capa</label>{{ form.featured_image_credit(class='form-control', placeholder='Ex.: João Silva / Agência X') }}<div class="form-help mt-1">Esse nome aparecerá abaixo da foto de capa. Se ficar vazio, será exibido “Divulgação”.</div></div>
       {% if post and post.featured_image %}<div class="preview-box"><div class="small text-muted mb-2">Imagem atual</div><img src="{{ post.featured_image }}" alt="Imagem destacada atual"></div>{% endif %}
       <div class="schedule-box">
