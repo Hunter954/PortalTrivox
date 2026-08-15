@@ -156,6 +156,9 @@ def send_post_to_whatsapp(post: Post) -> WhatsAppResult:
                 "url": image_url,
             }
         ],
+        "generate_standard_art": True,
+        "art_brand": "trivox",
+        "art_only_feed": True,
         "whatsapp_caption": caption,
         "send_text": False,
     }
