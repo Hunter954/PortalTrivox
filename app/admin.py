@@ -4,6 +4,8 @@ import shutil
 import json
 import requests
 import threading
+import base64
+import secrets
 from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -18,10 +20,11 @@ from werkzeug.utils import secure_filename
 from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, post_categories, AnalyticsSession, WPImportJob, WPImportLog
 from .sync import download_external_image
 from .forms import LoginForm, AdSlotForm, CategoryForm, PostAdminForm
+from .art_generator import generate_trivox_variants
 from .wp_client import WPClient
 from .social_whatsapp import auto_send_post_to_whatsapp
 from .sync import sync_categories, sync_posts, localize_existing_wp_images, upsert_category, upsert_wp_post
-from html import unescape
+from html import unescape, escape
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -2080,3 +2083,233 @@ def sync_wp_now():
     except Exception as e:
         flash(f"Erro ao sincronizar: {e}", "danger")
     return redirect(url_for("admin.dashboard"))
+
+# ---------------------------------------------------------------------------
+# WhatsApp Admin API (Portal Trivox)
+# Mantida fora das rotas públicas; não altera nem intercepta /foto.
+# ---------------------------------------------------------------------------
+def _trivox_whatsapp_token() -> str:
+    return (os.getenv('WHATSAPP_ADMIN_TOKEN') or current_app.config.get('WHATSAPP_SERVICE_TOKEN') or '').strip()
+
+
+def _trivox_whatsapp_authorized(data: dict) -> bool:
+    expected = _trivox_whatsapp_token()
+    received = (request.headers.get('X-Bot-Token') or request.headers.get('Authorization') or data.get('token') or '').strip()
+    if received.lower().startswith('bearer '):
+        received = received[7:].strip()
+    return bool(expected and received and secrets.compare_digest(expected, received))
+
+
+def _wa_plain_text_to_html(text: str) -> str:
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", (text or '').strip()) if b.strip()]
+    return '\n'.join(f"<p>{escape(block).replace(chr(10), '<br>')}</p>" for block in blocks)
+
+
+def _wa_excerpt(text: str, max_len: int = 240) -> str:
+    clean = re.sub(r'\s+', ' ', text or '').strip()
+    if len(clean) <= max_len:
+        return clean
+    return clean[:max_len - 1].rsplit(' ', 1)[0].strip() + '…'
+
+
+def _wa_post_url(post: Post) -> str:
+    try:
+        return url_for('site.post', slug=post.slug, _external=True)
+    except Exception:
+        return f"/p/{post.slug}"
+
+
+def _wa_post_payload(post: Post) -> dict:
+    return {
+        'id': post.id,
+        'title': post.title,
+        'source': post.source,
+        'excerpt': post.excerpt or '',
+        'featured_image': post.featured_image or '',
+        'published_at': post.published_at.strftime('%d/%m/%Y %H:%M') if post.published_at else '',
+        'categories': [{'id': c.id, 'name': c.name} for c in (post.categories or [])],
+        'url': _wa_post_url(post),
+    }
+
+
+def _wa_slot_payload(slot: AdSlot) -> dict:
+    visual = _slot_visual_payload(slot)
+    meta = _default_slot_layout_meta().get(slot.key, {})
+    return {
+        'id': slot.id, 'key': slot.key, 'name': slot.name,
+        'label': meta.get('label', slot.name), 'hint': meta.get('hint', ''),
+        'dimensions': meta.get('dimensions', 'Consulte o tamanho no painel'),
+        'is_active': bool(slot.is_active),
+        'has_content': bool((slot.html or '').strip() and visual.get('banners')),
+    }
+
+
+@admin_bp.post('/api/whatsapp-bot/generate-trivox-photo')
+def whatsapp_generate_trivox_photo():
+    data = request.get_json(silent=True) or {}
+    if not _trivox_whatsapp_authorized(data):
+        return jsonify({'ok': False, 'message': 'Token do gerador do Portal Trivox inválido.'}), 401
+    title = (data.get('title') or data.get('titulo') or '').strip()
+    image_b64 = (data.get('image_base64') or '').strip()
+    if not title or not image_b64:
+        return jsonify({'ok': False, 'message': 'Imagem e título são obrigatórios.'}), 400
+    try:
+        if ',' in image_b64 and image_b64.lower().startswith('data:'):
+            _meta, image_b64 = image_b64.split(',', 1)
+        content = base64.b64decode(image_b64, validate=True)
+        if len(content) > 20 * 1024 * 1024:
+            return jsonify({'ok': False, 'message': 'A imagem excede o limite de 20 MB.'}), 413
+        folder = _media_root() / 'gerador' / 'trivox-manual-source'
+        folder.mkdir(parents=True, exist_ok=True)
+        ext = Path(data.get('image_filename') or 'foto.jpg').suffix.lower()
+        if ext not in {'.jpg', '.jpeg', '.png', '.webp', '.jfif'}:
+            ext = '.jpg'
+        source_path = folder / f'{uuid4().hex}{ext}'
+        source_path.write_bytes(content)
+        rel = source_path.relative_to(_media_root()).as_posix()
+        source_url = f"{current_app.config['MEDIA_URL_PREFIX'].rstrip('/')}/{rel}"
+        generated = generate_trivox_variants(title=title[:500], image_source=source_url)
+        base_url = request.host_url.rstrip('/')
+        for item in generated:
+            if (item.get('url') or '').startswith('/'):
+                item['url'] = base_url + item['url']
+        return jsonify({'ok': True, 'brand': 'trivox', 'images': generated})
+    except Exception as exc:
+        current_app.logger.exception('Falha ao gerar imagem padrão do Portal Trivox')
+        return jsonify({'ok': False, 'message': f'Não consegui gerar a imagem do Trivox: {str(exc)[:180]}'}), 500
+
+
+@admin_bp.post('/api/whatsapp-menu/action')
+def whatsapp_menu_action_trivox():
+    data = request.get_json(silent=True) or {}
+    if not _trivox_whatsapp_authorized(data):
+        return jsonify({'ok': False, 'message': 'Token do Menu Admin do Portal Trivox inválido.'}), 401
+    action = (data.get('action') or '').strip().lower()
+    try:
+        if action == 'overview':
+            stats = _dashboard_stats()
+            active_users = db.session.query(func.count(User.id)).filter(User.is_active.is_(True)).scalar() or 0
+            return jsonify({'ok': True, 'page_views_total': stats['pv_total'], 'page_views_24h': stats['pv_24h'],
+                'posts_total': stats['posts_total'], 'local_posts': stats['local_posts'], 'wp_posts': stats['wp_posts'],
+                'categories_total': stats['categories_total'], 'active_ads': stats['active_ads'], 'active_users': active_users})
+
+        if action in {'posts.list', 'posts.search'}:
+            limit = min(max(int(data.get('limit') or 10), 1), 30)
+            query = Post.query
+            if action == 'posts.search':
+                term = (data.get('query') or '').strip()
+                if not term: return jsonify({'ok': True, 'posts': []})
+                query = query.filter(Post.title.ilike(f'%{term}%'))
+            posts = query.order_by(desc(Post.updated_at), desc(Post.published_at), desc(Post.id)).limit(limit).all()
+            return jsonify({'ok': True, 'posts': [_wa_post_payload(p) for p in posts]})
+
+        if action == 'posts.create':
+            title = (data.get('title') or '').strip(); content = (data.get('content') or '').strip()
+            if len(title) < 5: return jsonify({'ok': False, 'message': 'Título muito curto.'}), 400
+            if len(content) < 20: return jsonify({'ok': False, 'message': 'Texto da matéria muito curto.'}), 400
+            now = _now_brazil()
+            post = Post(source='local', title=title, slug=_ensure_unique_slug(Post, title),
+                excerpt=(data.get('excerpt') or _wa_excerpt(content)).strip(), content_html=_wa_plain_text_to_html(content),
+                featured_image=(data.get('featured_image') or '').strip(), author_name='Redação Trivox', published_at=now, updated_at=now)
+            category_id = data.get('category_id')
+            if category_id:
+                category = db.session.get(Category, int(category_id))
+                if category: post.categories = [category]
+            db.session.add(post); db.session.commit()
+            if _hub_config().get('enabled'):
+                try: _broadcast_post_to_hub(post)
+                except Exception: pass
+            return jsonify({'ok': True, 'post': _wa_post_payload(post)})
+
+        if action == 'posts.update':
+            post = db.session.get(Post, int(data.get('post_id') or 0))
+            if not post: return jsonify({'ok': False, 'message': 'Matéria não encontrada.'}), 404
+            if 'title' in data:
+                title = (data.get('title') or '').strip()
+                if len(title) < 5: return jsonify({'ok': False, 'message': 'Título muito curto.'}), 400
+                post.title = title; post.slug = _ensure_unique_slug(Post, title, object_id=post.id)
+            if 'content' in data:
+                content = (data.get('content') or '').strip()
+                if len(content) < 20: return jsonify({'ok': False, 'message': 'Texto muito curto.'}), 400
+                post.content_html = _wa_plain_text_to_html(content)
+            if 'excerpt' in data: post.excerpt = (data.get('excerpt') or '').strip()
+            if 'featured_image' in data: post.featured_image = (data.get('featured_image') or '').strip()
+            if 'category_id' in data:
+                post.categories = []
+                if data.get('category_id'):
+                    category = db.session.get(Category, int(data.get('category_id')))
+                    if category: post.categories = [category]
+            post.updated_at = _now_brazil(); db.session.commit()
+            return jsonify({'ok': True, 'post': _wa_post_payload(post)})
+
+        if action == 'posts.delete':
+            post = db.session.get(Post, int(data.get('post_id') or 0))
+            if not post: return jsonify({'ok': False, 'message': 'Matéria não encontrada.'}), 404
+            if post.source != 'local': return jsonify({'ok': False, 'message': 'Somente matérias locais podem ser excluídas pelo WhatsApp.'}), 400
+            post.categories = []
+            PageView.query.filter(PageView.post_id == post.id).update({PageView.post_id: None}, synchronize_session=False)
+            db.session.delete(post); db.session.commit(); return jsonify({'ok': True})
+
+        if action == 'categories.list':
+            cats = Category.query.order_by(Category.name.asc()).all()
+            return jsonify({'ok': True, 'categories': [{'id': c.id, 'name': c.name, 'slug': c.slug} for c in cats]})
+
+        if action == 'users.list':
+            users = User.query.order_by(User.is_active.desc(), User.email.asc()).limit(50).all()
+            return jsonify({'ok': True, 'users': [{'id': u.id, 'email': u.email, 'is_active': bool(u.is_active), 'is_admin': bool(u.is_admin)} for u in users]})
+
+        if action == 'insights':
+            analytics = _analytics_stats(30); current = analytics['current']
+            rows = (db.session.query(Post, func.count(PageView.id).label('views')).outerjoin(PageView, PageView.post_id == Post.id)
+                    .group_by(Post.id).order_by(desc('views'), desc(Post.published_at)).limit(5).all())
+            popular = []
+            for post, views in rows:
+                item = _wa_post_payload(post); item['title'] = f"{item['title']} — {int(views or 0)} views"; popular.append(item)
+            sessions = current.get('sessions', 0) or 0
+            return jsonify({'ok': True, 'page_views': current.get('pageviews', 0), 'visitors': current.get('total_users', 0),
+                'sessions': sessions, 'pages_per_session': round((current.get('pageviews', 0) or 0) / sessions, 2) if sessions else 0,
+                'avg_duration_seconds': current.get('avg_duration', 0), 'bounce_rate': current.get('bounce_rate', 0), 'popular_posts': popular})
+
+        if action == 'ads.list':
+            slots = AdSlot.query.order_by(AdSlot.key.asc()).all(); payloads = [_wa_slot_payload(s) for s in slots]
+            if data.get('only_with_content'): payloads = [s for s in payloads if s['has_content']]
+            return jsonify({'ok': True, 'slots': payloads})
+
+        if action == 'ads.create':
+            slot = db.session.get(AdSlot, int(data.get('slot_id') or 0))
+            if not slot: return jsonify({'ok': False, 'message': 'Local de publicidade não encontrado.'}), 404
+            image_url = (data.get('image_url') or '').strip(); link_url = (data.get('link_url') or '#').strip() or '#'
+            name = (data.get('name') or slot.name or 'Publicidade').strip()
+            if not re.match(r'^https?://', image_url, re.I): return jsonify({'ok': False, 'message': 'A imagem precisa ter uma URL pública válida.'}), 400
+            slot.name = name; slot.is_active = True
+            slot.html = '__ADCFG__' + json.dumps({'mode': 'carousel', 'interval': 5000, 'banners': [{'title': name, 'link': link_url, 'image': image_url}]}, ensure_ascii=False)
+            db.session.commit(); return jsonify({'ok': True, 'slot': _wa_slot_payload(slot)})
+
+        if action == 'ads.delete':
+            slot = db.session.get(AdSlot, int(data.get('slot_id') or 0))
+            if not slot: return jsonify({'ok': False, 'message': 'Publicidade não encontrada.'}), 404
+            slot.html = ''; slot.is_active = False; db.session.commit(); return jsonify({'ok': True, 'slot': _wa_slot_payload(slot)})
+
+        if action == 'settings.get':
+            return jsonify({'ok': True, 'site_title': _setting('site_name', 'Portal Trivox'),
+                'site_description': _setting('default_meta_description', ''),
+                'site_url': current_app.config.get('PUBLIC_BASE_URL') or request.url_root.rstrip('/'),
+                'logo_url': _setting('logo_url', '')})
+
+        if action == 'settings.update':
+            changed = False
+            if 'site_title' in data:
+                title = (data.get('site_title') or '').strip()
+                if not title: return jsonify({'ok': False, 'message': 'O título não pode ficar vazio.'}), 400
+                _save_setting('site_name', title); changed = True
+            if 'site_description' in data:
+                _save_setting('default_meta_description', (data.get('site_description') or '').strip()); changed = True
+            if not changed: return jsonify({'ok': False, 'message': 'Nenhuma configuração válida recebida.'}), 400
+            db.session.commit(); return jsonify({'ok': True})
+
+        return jsonify({'ok': False, 'message': 'Ação do menu não reconhecida.'}), 400
+    except (TypeError, ValueError):
+        db.session.rollback(); return jsonify({'ok': False, 'message': 'Dados inválidos para esta ação.'}), 400
+    except Exception as exc:
+        db.session.rollback(); current_app.logger.exception('Erro no Menu Admin do Portal Trivox')
+        return jsonify({'ok': False, 'message': str(exc) or 'Erro interno no Menu Admin.'}), 500

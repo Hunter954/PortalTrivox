@@ -32,3 +32,19 @@ O painel aceita múltiplos banners por posição e faz rotação automática.
 ## Conteúdo inicial
 
 Em uma instalação com banco vazio, o sistema cria automaticamente categorias e matérias iniciais recentes para a home não ficar vazia. Elas podem ser editadas ou removidas normalmente no painel.
+
+## Menu Admin do Portal Trivox via WhatsApp
+
+O projeto agora expõe duas APIs protegidas para o serviço Baileys:
+
+- `POST /admin/api/whatsapp-menu/action` — gerenciamento de matérias, categorias, usuários, insights, SEO e publicidade.
+- `POST /admin/api/whatsapp-bot/generate-trivox-photo` — geração da imagem padrão 1080x1440.
+
+Configure no Railway do Portal Trivox:
+
+```env
+WHATSAPP_ADMIN_TOKEN=troque-por-um-token-forte
+```
+
+O token deve ser igual ao `ADMIN_MENU_TRIVOX_TOKEN` e `PHOTO_TRIVOX_TOKEN` do serviço WhatsApp.
+A rota pública `/foto` existente não foi alterada.
