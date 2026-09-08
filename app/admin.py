@@ -21,6 +21,7 @@ from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, pos
 from .sync import download_external_image
 from .forms import LoginForm, AdSlotForm, CategoryForm, PostAdminForm
 from .art_generator import generate_trivox_variants
+from .video_generator import VideoGeneratorError, generate_trivox_reels_video
 from .wp_client import WPClient
 from .social_whatsapp import auto_send_post_to_whatsapp
 from .sync import sync_categories, sync_posts, localize_existing_wp_images, upsert_category, upsert_wp_post
@@ -2177,6 +2178,40 @@ def whatsapp_generate_trivox_photo():
     except Exception as exc:
         current_app.logger.exception('Falha ao gerar imagem padrão do Portal Trivox')
         return jsonify({'ok': False, 'message': f'Não consegui gerar a imagem do Trivox: {str(exc)[:180]}'}), 500
+
+
+@admin_bp.post('/api/whatsapp-bot/generate-trivox-video')
+def whatsapp_generate_trivox_video():
+    data = request.get_json(silent=True) or {}
+    if not _trivox_whatsapp_authorized(data):
+        return jsonify({'ok': False, 'message': 'Token do gerador de vídeo do Portal Trivox inválido.'}), 401
+
+    title = (data.get('title') or data.get('titulo') or '').strip()
+    video_b64 = (data.get('video_base64') or '').strip()
+    if not title or not video_b64:
+        return jsonify({'ok': False, 'message': 'Vídeo e título são obrigatórios.'}), 400
+
+    try:
+        if ',' in video_b64 and video_b64.lower().startswith('data:'):
+            _meta, video_b64 = video_b64.split(',', 1)
+        content = base64.b64decode(video_b64, validate=True)
+        max_bytes = int(current_app.config.get('VIDEO_MAX_BYTES', 80 * 1024 * 1024))
+        if len(content) > max_bytes:
+            return jsonify({'ok': False, 'message': f'O vídeo excede o limite de {max_bytes // (1024 * 1024)} MB.'}), 413
+
+        generated = generate_trivox_reels_video(
+            video_content=content,
+            title=title[:500],
+            filename_hint=data.get('video_filename') or 'video.mp4',
+        )
+        if (generated.get('url') or '').startswith('/'):
+            generated['url'] = request.host_url.rstrip('/') + generated['url']
+        return jsonify({'ok': True, 'brand': 'trivox', 'videos': [generated]})
+    except VideoGeneratorError as exc:
+        return jsonify({'ok': False, 'message': str(exc)[:700]}), 400
+    except Exception as exc:
+        current_app.logger.exception('Falha ao gerar vídeo padrão do Portal Trivox')
+        return jsonify({'ok': False, 'message': f'Não consegui gerar o vídeo do Trivox: {str(exc)[:180]}'}), 500
 
 
 @admin_bp.post('/api/whatsapp-menu/action')

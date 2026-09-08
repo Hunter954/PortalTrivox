@@ -15,7 +15,9 @@ class Config:
 
     MEDIA_ROOT = os.getenv("MEDIA_ROOT", "/data/uploads")
     MEDIA_URL_PREFIX = os.getenv("MEDIA_URL_PREFIX", "/media")
-    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(32 * 1024 * 1024)))
+    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(128 * 1024 * 1024)))
+    VIDEO_MAX_BYTES = int(os.getenv("VIDEO_MAX_BYTES", str(80 * 1024 * 1024)))
+    VIDEO_MAX_SECONDS = int(os.getenv("VIDEO_MAX_SECONDS", "180"))
     # Integração do Portal Trivox com o serviço Baileys/WhatsApp já usado pelo Paraná Pop.
     WHATSAPP_SERVICE_URL = os.getenv("WHATSAPP_SERVICE_URL", "").rstrip("/")
     WHATSAPP_SERVICE_TOKEN = os.getenv("WHATSAPP_SERVICE_TOKEN", os.getenv("SERVICE_TOKEN", ""))
