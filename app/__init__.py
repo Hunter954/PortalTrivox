@@ -115,6 +115,8 @@ def _ensure_defaults():
         ("default_meta_description", "Notícias de Foz do Iguaçu, Tríplice Fronteira, Oeste do Paraná, política, cidades, turismo, esportes e cultura."),
         ("facebook_app_id", ""),
         ("google_site_verification", ""),
+        ("google_verification_filename", ""),
+        ("google_verification_file_content", ""),
         ("google_analytics_id", ""),
         ("contact_email", ""),
         ("contact_phone", ""),

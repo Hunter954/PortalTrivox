@@ -4,10 +4,11 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ meta_title or site_name_value }}</title>
   <meta name="description" content="{{ meta_description or '' }}">
-  <meta name="robots" content="index,follow,max-image-preview:large"><link rel="canonical" href="{{ meta_url or request.url }}">
+  <meta name="robots" content="{{ meta_robots or 'index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1' }}"><link rel="canonical" href="{{ meta_url or request.base_url }}">
   {% if favicon_url %}<link rel="icon" href="{{ favicon_url }}">{% endif %}
-  <meta property="og:locale" content="pt_BR"><meta property="og:site_name" content="{{ site_name_value }}"><meta property="og:title" content="{{ meta_title or site_name_value }}"><meta property="og:description" content="{{ meta_description or '' }}"><meta property="og:type" content="{{ meta_type or 'website' }}"><meta property="og:url" content="{{ meta_url or request.url }}">{% if meta_image %}<meta property="og:image" content="{{ meta_image }}">{% endif %}
-  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:locale" content="pt_BR"><meta property="og:site_name" content="{{ site_name_value }}"><meta property="og:title" content="{{ meta_title or site_name_value }}"><meta property="og:description" content="{{ meta_description or '' }}"><meta property="og:type" content="{{ meta_type or 'website' }}"><meta property="og:url" content="{{ meta_url or request.url }}">{% if meta_image %}<meta property="og:image" content="{{ meta_image }}"><meta property="og:image:alt" content="{{ meta_title or site_name_value }}">{% endif %}
+  <meta name="twitter:card" content="summary_large_image">{% if meta_image %}<meta name="twitter:image" content="{{ meta_image }}"><meta name="twitter:image:alt" content="{{ meta_title or site_name_value }}">{% endif %}
+  {% if google_site_verification %}<meta name="google-site-verification" content="{{ google_site_verification }}">{% endif %}
   <script>(function(){try{var t=localStorage.getItem('trivox-theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t;}catch(e){}})();</script>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"><link rel="stylesheet" href="{{ url_for('static', filename='css/site.css') }}">
