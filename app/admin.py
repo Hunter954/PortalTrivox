@@ -6,18 +6,21 @@ import requests
 import threading
 import base64
 import secrets
+import csv
+import io
 from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from uuid import uuid4
 from urllib.parse import urlparse
 
-from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, abort, jsonify
+from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, abort, jsonify, Response
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import func, desc, or_
 from werkzeug.utils import secure_filename
 
 from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, post_categories, AnalyticsSession, WPImportJob, WPImportLog
+from .analytics import pageview_report
 from .sync import download_external_image
 from .forms import LoginForm, AdSlotForm, CategoryForm, PostAdminForm
 from .art_generator import generate_trivox_variants
@@ -1175,39 +1178,31 @@ def insights_page():
     if r:
         return r
 
-    end_default = datetime.utcnow().date()
+    end_default = _now_brazil().date()
     start_default = end_default - timedelta(days=29)
     start_day = _parse_date_input(request.args.get("from"), start_default)
     end_day = _parse_date_input(request.args.get("to"), end_default)
-    insights = _analytics_stats(start_date=start_day, end_date=end_day)
+    insights = pageview_report(start_day, end_day)
+    if request.args.get("format") == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";")
+        writer.writerow(["Data (America/Sao_Paulo)", "Visualizações brutas de páginas (inclui repetições e possíveis robôs)"])
+        for day in insights["daily_series"]:
+            writer.writerow([day["iso"], day["pageviews"]])
+        filename = f"trivox-visualizacoes-{insights['start_date']}-{insights['end_date']}.csv"
+        return Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
 
-    allowed_metrics = {
-        "sessions": "Sessions",
-        "pageviews": "Pageviews",
-        "total_users": "Total Users",
-    }
-    dashboard_stats = _dashboard_stats()
-    selected_metric = (request.args.get("metric") or "sessions").strip().lower()
-    if selected_metric not in allowed_metrics:
-        selected_metric = "sessions"
-
-    metric_chart = _build_chart_data(insights["daily_series"], selected_metric)
-    card_lookup = {card["key"]: card for card in insights.get("cards", [])}
-    summary_cards = [
-        card_lookup.get("sessions", {"label": "Sessions", "value": insights["current"].get("sessions", 0), "delta": 0}),
-        card_lookup.get("pageviews", {"label": "Pageviews", "value": insights["current"].get("pageviews", 0), "delta": 0}),
-        card_lookup.get("total_users", {"label": "Total Users", "value": insights["current"].get("total_users", 0), "delta": 0}),
-    ]
+    metric_chart = _build_chart_data(insights["daily_series"], "pageviews")
 
     return render_template(
         "admin/insights.html",
         insights=insights,
-        dashboard_stats=dashboard_stats,
-        summary_cards=summary_cards,
-        selected_metric=selected_metric,
-        metric_label=allowed_metrics[selected_metric],
+        today=end_default,
+        month_start=end_default.replace(day=1),
+        last_30_start=start_default,
+        metric_label="Visualizações",
         metric_chart=metric_chart,
-        allowed_metrics=allowed_metrics,
         site_name=_setting("site_name", current_app.config.get("SITE_NAME", "Portal Trivox")),
         logo_url=_setting("logo_url", ""),
         favicon_url=_setting("favicon_url", ""),

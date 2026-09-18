@@ -1,60 +1,52 @@
 {% extends 'admin/layout.html' %}
 {% block admin_title %}Estatísticas{% endblock %}
 {% block page_title %}Estatísticas do site{% endblock %}
-{% block page_subtitle %}Leitura de performance do período selecionado com visão detalhada de sessões, pageviews e usuários.{% endblock %}
+{% block page_subtitle %}Visualizações registradas, evolução diária e matérias mais acessadas.{% endblock %}
 {% block admin_content %}
-<section class="stats-grid insights-metrics-grid insights-metrics-grid--top">
-  {% for card in summary_cards %}
+{% macro number(value) %}{{ '{:,}'.format(value).replace(',', '.') }}{% endmacro %}
+<div class="alert alert-info">
+  <strong>Histórico de visualizações do site</strong>
+  <div>Acessos registrados pelo servidor, incluindo repetições e possíveis robôs. Não representam visitantes únicos nem os números do Google Analytics.</div>
+  <small>Sessões e visitantes únicos: indisponíveis neste histórico. Datas no horário de Brasília.</small>
+</div>
+<section class="stats-grid">
   <article class="stat-card">
-    <span>{{ card.label }}</span>
-    <strong>{{ '{:,}'.format(card.value).replace(',', '.') }}</strong>
-    <small>
-      {% if card.delta > 0 %}
-        <span class="text-success">▲ {{ '%.1f'|format(card.delta) }}%</span>
-      {% elif card.delta < 0 %}
-        <span class="text-danger">▼ {{ '%.1f'|format(card.delta|abs) }}%</span>
-      {% else %}
-        <span class="text-muted">0%</span>
-      {% endif %}
-      vs. período anterior
-    </small>
+    <span>Visualizações no período</span><strong>{{ number(insights.total) }}</strong>
+    <small>{% if insights.delta is not none %}{{ '%+.1f'|format(insights.delta) }}% vs. período anterior{% else %}Sem base para comparação percentual{% endif %}</small>
+    <small class="d-block">Período anterior: {{ number(insights.previous_total) }}</small>
   </article>
-  {% endfor %}
-
-  <article class="stat-card insights-pageviews-card">
-    <span>Visualizações totais</span>
-    <strong>{{ dashboard_stats.pv_total }}</strong>
-    <small>Últimas 24h: {{ dashboard_stats.pv_24h }}</small>
-  </article>
+  <article class="stat-card"><span>Páginas acessadas no período</span><strong>{{ number(insights.distinct_pages) }}</strong><small>Endereços diferentes visitados</small></article>
+  <article class="stat-card"><span>Visualizações totais</span><strong>{{ number(insights.all_total) }}</strong><small>{% if insights.first_day %}Histórico desde {{ insights.first_day.strftime('%d/%m/%Y') }}{% else %}Nenhuma visualização registrada{% endif %}</small></article>
+  <article class="stat-card"><span>Últimas 24 horas</span><strong>{{ number(insights.last_24h) }}</strong><small>Contagem móvel, independente do filtro</small></article>
 </section>
 
 <section class="panel-card insights-chart-card">
   <div class="panel-head insights-chart-head">
     <div>
       <h2>Relatório visual</h2>
-      <p>Escolha o período e clique na métrica para trocar o gráfico.</p>
+      <p>Escolha as datas para consultar as visualizações salvas.</p>
     </div>
     <form class="insights-filter-form" method="get">
-      <input type="hidden" name="metric" value="{{ selected_metric }}">
       <div>
         <label for="insightsFrom">De</label>
-        <input id="insightsFrom" class="form-control" type="date" name="from" value="{{ insights.start_date.isoformat() }}">
+        <input id="insightsFrom" class="form-control" type="date" min="2000-01-01" max="{{ today.isoformat() }}" name="from" value="{{ insights.start_date.isoformat() }}">
       </div>
       <div>
         <label for="insightsTo">Até</label>
-        <input id="insightsTo" class="form-control" type="date" name="to" value="{{ insights.end_date.isoformat() }}">
+        <input id="insightsTo" class="form-control" type="date" min="2000-01-01" max="{{ today.isoformat() }}" name="to" value="{{ insights.end_date.isoformat() }}">
       </div>
       <button class="btn btn-dark" type="submit">Atualizar gráfico</button>
     </form>
   </div>
 
   <div class="insights-metric-switcher">
-    {% for metric_key, metric_name in allowed_metrics.items() %}
-      <a class="metric-pill {% if selected_metric == metric_key %}active{% endif %}" href="{{ url_for('admin.insights_page', metric=metric_key, from=insights.start_date.isoformat(), to=insights.end_date.isoformat()) }}">
-        {{ metric_name }}
-      </a>
-    {% endfor %}
+    <a class="metric-pill" href="{{ url_for('admin.insights_page', from=last_30_start.isoformat(), to=today.isoformat()) }}">Últimos 30 dias</a>
+    <a class="metric-pill" href="{{ url_for('admin.insights_page', from=month_start.isoformat(), to=today.isoformat()) }}">Este mês</a>
+    {% if insights.first_day %}<a class="metric-pill" href="{{ url_for('admin.insights_page', from=insights.first_day.isoformat(), to=today.isoformat()) }}">Todo o histórico</a>{% endif %}
+    <a class="btn btn-outline-dark" href="{{ url_for('admin.insights_page', from=insights.start_date.isoformat(), to=insights.end_date.isoformat(), format='csv') }}">Baixar relatório diário (CSV)</a>
   </div>
+  {% if insights.total == 0 %}<p class="text-muted">Nenhuma visualização registrada no período selecionado. Experimente outras datas ou “Todo o histórico”.</p>{% endif %}
+  {% if insights.first_day and insights.start_date < insights.first_day %}<p class="text-muted">O histórico disponível começa em {{ insights.first_day.strftime('%d/%m/%Y') }}. Dias anteriores não têm registros disponíveis.</p>{% endif %}
 
   <div class="insights-chart-header-row">
     <div>
@@ -85,6 +77,21 @@
       {% endfor %}
     </svg>
   </div>
+</section>
+
+<section class="panel-card mt-3">
+  <div class="panel-head"><div><h2>Matérias mais acessadas</h2><p>Até 20 matérias, considerando apenas o período selecionado.</p></div></div>
+  <div class="table-responsive"><table class="table admin-table">
+    <thead><tr><th>Matéria</th><th class="text-end">Visualizações</th></tr></thead>
+    <tbody>{% for post in insights.top_posts %}<tr><td><a href="{{ url_for('site.post', slug=post.slug) }}" target="_blank" rel="noopener">{{ post.title }}</a></td><td class="text-end">{{ number(post.views) }}</td></tr>{% else %}<tr><td colspan="2">Nenhuma matéria com acessos registrados neste período.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+<section class="panel-card mt-3">
+  <div class="panel-head"><div><h2>Páginas mais acessadas</h2><p>Inclui início, categorias, buscas e matérias. Até 20 endereços no período.</p></div></div>
+  <div class="table-responsive"><table class="table admin-table">
+    <thead><tr><th>Página</th><th class="text-end">Visualizações</th></tr></thead>
+    <tbody>{% for path, views in insights.top_pages %}<tr><td style="overflow-wrap:anywhere">{{ path }}</td><td class="text-end">{{ number(views) }}</td></tr>{% else %}<tr><td colspan="2">Nenhuma página com acessos registrados neste período.</td></tr>{% endfor %}</tbody>
+  </table></div>
 </section>
 
 <script>
