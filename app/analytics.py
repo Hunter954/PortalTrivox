@@ -8,6 +8,22 @@ from .models import db, PageView, Post, AnalyticsSession
 
 REPORT_TZ = ZoneInfo("America/Sao_Paulo")
 
+# Fallback model used only when historical session tracking does not exist.
+# These values are deliberately exposed in the report so estimated data is
+# never confused with measured AnalyticsSession data.
+EST_PAGES_PER_SESSION = 1.62
+EST_SESSIONS_PER_USER = 1.22
+EST_AVG_DURATION_SECONDS = 138  # 02:18
+EST_BOUNCE_RATE = 64.0
+
+
+def _positive_or(value, fallback):
+    try:
+        value = float(value)
+        return value if value > 0 else fallback
+    except (TypeError, ValueError):
+        return fallback
+
 
 def pageview_report(start_day=None, end_day=None):
     today = datetime.now(REPORT_TZ).date()
@@ -47,8 +63,9 @@ def pageview_report(start_day=None, end_day=None):
             stamp = datetime.fromisoformat(stamp)
         local_day = stamp.replace(tzinfo=timezone.utc).astimezone(REPORT_TZ).date()
         counts[local_day] = counts.get(local_day, 0) + count
+
     # Session-based metrics are a second, richer source. They were introduced later
-    # than PageView, so the report explicitly flags unavailable/partial history.
+    # than PageView, so missing historical days are estimated from pageviews.
     first_session_at = db.session.query(func.min(AnalyticsSession.created_at)).scalar()
     session_first_day = (first_session_at.replace(tzinfo=timezone.utc).astimezone(REPORT_TZ).date()
                          if first_session_at else None)
@@ -60,8 +77,11 @@ def pageview_report(start_day=None, end_day=None):
     session_duration = {}
     session_pageviews = {}
     session_bounces = {}
-    sessions = users = new_users = avg_duration = 0
-    pages_per_session = bounce_rate = 0.0
+    measured_sessions = measured_users = new_users = 0
+    measured_avg_duration = 0
+    measured_pages_per_session = measured_bounce_rate = 0.0
+    total_session_pageviews = 0
+    measured_bounces = 0
     top_referrers = []
     devices = {"Desktop": 0, "Mobile": 0, "Tablet": 0, "Outro": 0}
 
@@ -71,14 +91,15 @@ def pageview_report(start_day=None, end_day=None):
             AnalyticsSession.created_at < end,
         )
         session_rows = session_q.all()
-        sessions = len(session_rows)
-        users = len({row.visitor_id for row in session_rows if row.visitor_id})
+        measured_sessions = len(session_rows)
+        measured_users = len({row.visitor_id for row in session_rows if row.visitor_id})
         new_users = len({row.visitor_id for row in session_rows if row.is_new_user and row.visitor_id})
-        avg_duration = round(sum((row.duration_seconds or 0) for row in session_rows) / sessions) if sessions else 0
+        total_duration = sum((row.duration_seconds or 0) for row in session_rows)
+        measured_avg_duration = round(total_duration / measured_sessions) if measured_sessions else 0
         total_session_pageviews = sum((row.pageviews or 0) for row in session_rows)
-        pages_per_session = round(total_session_pageviews / sessions, 2) if sessions else 0.0
-        bounces = sum(1 for row in session_rows if row.is_bounce)
-        bounce_rate = round((bounces / sessions) * 100, 1) if sessions else 0.0
+        measured_pages_per_session = round(total_session_pageviews / measured_sessions, 2) if measured_sessions else 0.0
+        measured_bounces = sum(1 for row in session_rows if row.is_bounce)
+        measured_bounce_rate = round((measured_bounces / measured_sessions) * 100, 1) if measured_sessions else 0.0
 
         ref_counts = {}
         for row in session_rows:
@@ -102,24 +123,86 @@ def pageview_report(start_day=None, end_day=None):
                 devices['Outro'] += 1
         top_referrers = sorted(ref_counts.items(), key=lambda item: (-item[1], item[0]))[:20]
 
+    # Prefer ratios learned from measured data when it exists. If there is no
+    # measured history, use the conservative baseline agreed for this dashboard.
+    model_pages_per_session = _positive_or(measured_pages_per_session, EST_PAGES_PER_SESSION)
+    measured_sessions_per_user = (measured_sessions / measured_users) if measured_users else 0
+    model_sessions_per_user = _positive_or(measured_sessions_per_user, EST_SESSIONS_PER_USER)
+    model_avg_duration = int(_positive_or(measured_avg_duration, EST_AVG_DURATION_SECONDS))
+    model_bounce_rate = _positive_or(measured_bounce_rate, EST_BOUNCE_RATE)
+
+    def needs_estimate(day):
+        if not sessions_available:
+            return True
+        return bool(session_first_day and day < session_first_day)
+
     daily_series = []
+    estimated_days_count = 0
+    estimated_sessions = 0
+    estimated_users = 0
+    estimated_duration_total = 0
+    estimated_bounces = 0.0
+    estimated_pageviews = 0
+
     for offset in range(window_days):
         day = start_day + timedelta(days=offset)
-        day_sessions = session_counts.get(day, 0)
-        day_duration = session_duration.get(day, 0)
-        day_spv = session_pageviews.get(day, 0)
-        day_bounces = session_bounces.get(day, 0)
+        day_pageviews = counts.get(day, 0)
+        estimated = needs_estimate(day)
+        if estimated:
+            day_sessions = round(day_pageviews / model_pages_per_session) if day_pageviews else 0
+            day_users = round(day_sessions / model_sessions_per_user) if day_sessions else 0
+            day_avg_duration = model_avg_duration if day_sessions else 0
+            day_pps = round(day_pageviews / day_sessions, 2) if day_sessions else 0.0
+            day_bounce = round(model_bounce_rate, 1) if day_sessions else 0.0
+            estimated_days_count += 1
+            estimated_sessions += day_sessions
+            estimated_users += day_users
+            estimated_duration_total += day_sessions * day_avg_duration
+            estimated_bounces += day_sessions * (day_bounce / 100.0)
+            estimated_pageviews += day_pageviews
+        else:
+            day_sessions = session_counts.get(day, 0)
+            day_duration = session_duration.get(day, 0)
+            day_spv = session_pageviews.get(day, 0)
+            day_bounces = session_bounces.get(day, 0)
+            day_users = len(session_users.get(day, set()))
+            day_avg_duration = round(day_duration / day_sessions) if day_sessions else 0
+            day_pps = round(day_spv / day_sessions, 2) if day_sessions else 0.0
+            day_bounce = round((day_bounces / day_sessions) * 100, 1) if day_sessions else 0.0
+
         daily_series.append({
             "iso": day.isoformat(),
             "label": day.strftime("%d/%m/%Y"),
             "label_short": day.strftime("%d/%m"),
-            "pageviews": counts.get(day, 0),
+            "pageviews": day_pageviews,
             "sessions": day_sessions,
-            "users": len(session_users.get(day, set())),
-            "avg_duration": round(day_duration / day_sessions) if day_sessions else 0,
-            "pages_per_session": round(day_spv / day_sessions, 2) if day_sessions else 0.0,
-            "bounce_rate": round((day_bounces / day_sessions) * 100, 1) if day_sessions else 0.0,
+            "users": day_users,
+            "avg_duration": day_avg_duration,
+            "pages_per_session": day_pps,
+            "bounce_rate": day_bounce,
+            "metrics_estimated": estimated,
+            "metric_source": "Estimado" if estimated else "Medido",
         })
+
+    metrics_estimated = estimated_days_count > 0
+    session_metrics_available = bool(total or measured_sessions)
+
+    if metrics_estimated:
+        sessions = measured_sessions + estimated_sessions
+        # Users across the untracked and tracked portions cannot be de-duplicated;
+        # therefore this total is explicitly marked as estimated in every export.
+        users = measured_users + estimated_users
+        measured_duration_total = measured_avg_duration * measured_sessions
+        avg_duration = round((measured_duration_total + estimated_duration_total) / sessions) if sessions else 0
+        blended_pageviews = total_session_pageviews + estimated_pageviews
+        pages_per_session = round(blended_pageviews / sessions, 2) if sessions else 0.0
+        bounce_rate = round(((measured_bounces + estimated_bounces) / sessions) * 100, 1) if sessions else 0.0
+    else:
+        sessions = measured_sessions
+        users = measured_users
+        avg_duration = measured_avg_duration
+        pages_per_session = measured_pages_per_session
+        bounce_rate = measured_bounce_rate
 
     top_pages = (current.with_entities(PageView.path, func.count(PageView.id).label("views"))
                  .group_by(PageView.path).order_by(func.count(PageView.id).desc(), PageView.path).limit(20).all())
@@ -130,13 +213,27 @@ def pageview_report(start_day=None, end_day=None):
     all_total, first_at = db.session.query(func.count(PageView.id), func.min(PageView.created_at)).one()
     first_day = first_at.replace(tzinfo=timezone.utc).astimezone(REPORT_TZ).date() if first_at else None
     last_24h = PageView.query.filter(PageView.created_at >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)).count()
-    return {"start_date": start_day, "end_date": end_day, "total": total,
-            "previous_total": previous_total, "delta": delta, "all_total": all_total,
-            "last_24h": last_24h, "first_day": first_day,
-            "distinct_pages": current.with_entities(func.count(func.distinct(PageView.path))).scalar() or 0,
-            "daily_series": daily_series, "top_pages": top_pages, "top_posts": top_posts,
-            "sessions_available": sessions_available, "session_data_partial": session_data_partial,
-            "session_first_day": session_first_day, "sessions": sessions, "users": users,
-            "new_users": new_users, "avg_duration": avg_duration,
-            "pages_per_session": pages_per_session, "bounce_rate": bounce_rate,
-            "top_referrers": top_referrers, "devices": devices}
+
+    return {
+        "start_date": start_day, "end_date": end_day, "total": total,
+        "previous_total": previous_total, "delta": delta, "all_total": all_total,
+        "last_24h": last_24h, "first_day": first_day,
+        "distinct_pages": current.with_entities(func.count(func.distinct(PageView.path))).scalar() or 0,
+        "daily_series": daily_series, "top_pages": top_pages, "top_posts": top_posts,
+        "sessions_available": sessions_available, "session_data_partial": session_data_partial,
+        "session_metrics_available": session_metrics_available,
+        "metrics_estimated": metrics_estimated,
+        "estimated_days_count": estimated_days_count,
+        "measured_sessions": measured_sessions,
+        "measured_users": measured_users,
+        "session_first_day": session_first_day, "sessions": sessions, "users": users,
+        "new_users": new_users, "avg_duration": avg_duration,
+        "pages_per_session": pages_per_session, "bounce_rate": bounce_rate,
+        "top_referrers": top_referrers, "devices": devices,
+        "estimation_model": {
+            "pages_per_session": round(model_pages_per_session, 2),
+            "sessions_per_user": round(model_sessions_per_user, 2),
+            "avg_duration": model_avg_duration,
+            "bounce_rate": round(model_bounce_rate, 1),
+        },
+    }

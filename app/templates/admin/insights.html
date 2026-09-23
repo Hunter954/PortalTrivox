@@ -32,20 +32,20 @@
   </div>
 </div>
 
-{% if not insights.sessions_available %}
-<div class="analytics-note"><i class="bi bi-info-circle"></i><span><strong>Pageviews disponíveis.</strong> Sessões, usuários, duração e rejeição estão indisponíveis neste histórico porque não há registros de sessões para o período.</span></div>
-{% elif insights.session_data_partial %}
-<div class="analytics-note analytics-note--warn"><i class="bi bi-exclamation-triangle"></i><span>As métricas de sessão são parciais neste intervalo. O rastreamento de sessões começa em <strong>{{ insights.session_first_day.strftime('%d/%m/%Y') }}</strong>.</span></div>
+{% if insights.metrics_estimated %}
+<div class="analytics-note analytics-note--warn"><i class="bi bi-calculator"></i><span><strong>Métricas estimadas automaticamente.</strong> Nos {{ insights.estimated_days_count }} dia(s) sem rastreamento de sessão, o sistema estima sessões, usuários, duração e rejeição a partir dos pageviews. {% if insights.sessions_available %}Quando existem dados medidos, eles calibram o modelo e são preservados.{% else %}Modelo-base: {{ '%.2f'|format(insights.estimation_model.pages_per_session) }} pág./sessão, {{ '%.2f'|format(insights.estimation_model.sessions_per_user) }} sessões/usuário, {{ duration(insights.estimation_model.avg_duration) }} de duração e {{ '%.1f'|format(insights.estimation_model.bounce_rate) }}% de rejeição.{% endif %} Valores estimados aparecem identificados no PDF, Excel e CSV.</span></div>
+{% elif insights.sessions_available %}
+<div class="analytics-note"><i class="bi bi-check-circle"></i><span><strong>Métricas medidas.</strong> Sessões, usuários, duração e rejeição foram calculados a partir do rastreamento interno.</span></div>
 {% endif %}
 
 <section class="analytics-kpi-grid">
   <article class="analytics-kpi analytics-kpi--hero"><span>Visualizações</span><strong>{{ number(insights.total) }}</strong><small>{% if insights.delta is not none %}<b class="{{ 'up' if insights.delta >= 0 else 'down' }}">{{ '%+.1f'|format(insights.delta) }}%</b> vs. período anterior{% else %}Sem base de comparação{% endif %}</small></article>
   <article class="analytics-kpi"><span>Páginas acessadas</span><strong>{{ number(insights.distinct_pages) }}</strong><small>URLs distintas</small></article>
-  <article class="analytics-kpi"><span>Sessões</span><strong>{% if insights.sessions_available %}{{ number(insights.sessions) }}{% else %}—{% endif %}</strong><small>{% if insights.sessions_available %}Visitas registradas{% else %}Sem histórico{% endif %}</small></article>
-  <article class="analytics-kpi"><span>Usuários</span><strong>{% if insights.sessions_available %}{{ number(insights.users) }}{% else %}—{% endif %}</strong><small>{% if insights.sessions_available %}Visitantes identificados{% else %}Sem histórico{% endif %}</small></article>
-  <article class="analytics-kpi"><span>Duração média</span><strong>{% if insights.sessions_available %}{{ duration(insights.avg_duration) }}{% else %}—{% endif %}</strong><small>Por sessão</small></article>
-  <article class="analytics-kpi"><span>Páginas / sessão</span><strong>{% if insights.sessions_available %}{{ '%.2f'|format(insights.pages_per_session) }}{% else %}—{% endif %}</strong><small>Profundidade média</small></article>
-  <article class="analytics-kpi"><span>Taxa de rejeição</span><strong>{% if insights.sessions_available %}{{ '%.1f'|format(insights.bounce_rate) }}%{% else %}—{% endif %}</strong><small>Baixa interação</small></article>
+  <article class="analytics-kpi"><span>Sessões</span><strong>{% if insights.session_metrics_available %}{{ number(insights.sessions) }}{% else %}—{% endif %}</strong><small>{% if insights.metrics_estimated %}<span class="estimate-tag">Estimado</span>{% elif insights.sessions_available %}Visitas registradas{% else %}Sem histórico{% endif %}</small></article>
+  <article class="analytics-kpi"><span>Usuários</span><strong>{% if insights.session_metrics_available %}{{ number(insights.users) }}{% else %}—{% endif %}</strong><small>{% if insights.metrics_estimated %}<span class="estimate-tag">Estimado</span>{% elif insights.sessions_available %}Visitantes identificados{% else %}Sem histórico{% endif %}</small></article>
+  <article class="analytics-kpi"><span>Duração média</span><strong>{% if insights.session_metrics_available %}{{ duration(insights.avg_duration) }}{% else %}—{% endif %}</strong><small>{% if insights.metrics_estimated %}<span class="estimate-tag">Estimado</span>{% else %}Por sessão{% endif %}</small></article>
+  <article class="analytics-kpi"><span>Páginas / sessão</span><strong>{% if insights.session_metrics_available %}{{ '%.2f'|format(insights.pages_per_session) }}{% else %}—{% endif %}</strong><small>{% if insights.metrics_estimated %}<span class="estimate-tag">Estimado</span>{% else %}Profundidade média{% endif %}</small></article>
+  <article class="analytics-kpi"><span>Taxa de rejeição</span><strong>{% if insights.session_metrics_available %}{{ '%.1f'|format(insights.bounce_rate) }}%{% else %}—{% endif %}</strong><small>{% if insights.metrics_estimated %}<span class="estimate-tag">Estimado</span>{% else %}Baixa interação{% endif %}</small></article>
   <article class="analytics-kpi"><span>Últimas 24 horas</span><strong>{{ number(insights.last_24h) }}</strong><small>Contagem móvel</small></article>
 </section>
 
@@ -107,14 +107,14 @@
     <div class="analytics-card-head"><div><span class="analytics-eyebrow">TECNOLOGIA</span><h2>Dispositivos</h2></div></div>
     <div class="device-grid">
       {% for device, count in insights.devices.items() %}
-      <div class="device-card"><i class="bi {{ 'bi-phone' if device == 'Mobile' else ('bi-tablet' if device == 'Tablet' else ('bi-display' if device == 'Desktop' else 'bi-question-circle')) }}"></i><span>{{ device }}</span><strong>{{ number(count) }}</strong><small>{% if insights.sessions %}{{ '%.1f'|format((count / insights.sessions) * 100) }}%{% else %}0,0%{% endif %}</small></div>
+      <div class="device-card"><i class="bi {{ 'bi-phone' if device == 'Mobile' else ('bi-tablet' if device == 'Tablet' else ('bi-display' if device == 'Desktop' else 'bi-question-circle')) }}"></i><span>{{ device }}</span><strong>{{ number(count) }}</strong><small>{% if insights.measured_sessions %}{{ '%.1f'|format((count / insights.measured_sessions) * 100) }}%{% else %}0,0%{% endif %}</small></div>
       {% endfor %}
     </div>
   </article>
 </section>
 {% endif %}
 
-<div class="analytics-footnote"><i class="bi bi-shield-check"></i><span>Fonte: dados internos do Portal Trivox. Pageviews podem incluir repetições e possíveis robôs. O Excel possui dashboard, abas analíticas e gráficos nativos com valores ao passar o mouse; o PDF entrega uma versão pronta para apresentação e impressão.</span></div>
+<div class="analytics-footnote"><i class="bi bi-shield-check"></i><span>Fonte: dados internos do Portal Trivox. Pageviews podem incluir repetições e possíveis robôs. Quando o rastreamento de sessões não existe no histórico, sessões, usuários, duração, páginas/sessão e rejeição são estimados e identificados como tal. O Excel possui dashboard, abas analíticas e gráficos nativos com valores ao passar o mouse; o PDF entrega uma versão pronta para apresentação e impressão.</span></div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {

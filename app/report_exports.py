@@ -88,6 +88,8 @@ def build_excel_report(insights: dict, site_name: str = "Portal Trivox") -> byte
         "cell_num": wb.add_format({"font_color": TEXT, "bg_color": "#FFFFFF", "bottom": 1, "bottom_color": LINE, "num_format": "#,##0"}),
         "cell_pct": wb.add_format({"font_color": TEXT, "bg_color": "#FFFFFF", "bottom": 1, "bottom_color": LINE, "num_format": "0.0%"}),
         "note": wb.add_format({"font_size": 8, "font_color": MUTED, "bg_color": BG, "text_wrap": True, "valign": "top"}),
+        "estimate": wb.add_format({"bold": True, "font_size": 8, "font_color": "#9A5B00", "bg_color": "#FFF7E6", "bottom": 1, "bottom_color": LINE, "align": "center"}),
+        "measured": wb.add_format({"bold": True, "font_size": 8, "font_color": ACCENT, "bg_color": "#EFFAF7", "bottom": 1, "bottom_color": LINE, "align": "center"}),
         "date": wb.add_format({"num_format": "dd/mm/yyyy", "font_color": TEXT, "bg_color": "#FFFFFF", "bottom": 1, "bottom_color": LINE}),
     }
 
@@ -110,14 +112,16 @@ def build_excel_report(insights: dict, site_name: str = "Portal Trivox") -> byte
     dash.merge_range("B2:M2", f"Período: {insights['start_date'].strftime('%d/%m/%Y')} a {insights['end_date'].strftime('%d/%m/%Y')}  •  Horário de Brasília", fmt["subtitle"])
     dash.set_row(2, 8)
 
+    estimated_meta = "ESTIMADO • baseado nos pageviews" if insights.get("metrics_estimated") else "Medido pelo rastreamento interno"
+    metrics_ok = insights.get("session_metrics_available")
     kpis = [
         ("Visualizações", insights.get("total", 0), _delta_label(insights.get("delta"))),
         ("Páginas acessadas", insights.get("distinct_pages", 0), "URLs distintas no período"),
-        ("Sessões", insights.get("sessions"), "Sessões registradas" if insights.get("sessions_available") else "Histórico de sessões indisponível"),
-        ("Usuários", insights.get("users"), "Visitantes identificados" if insights.get("sessions_available") else "Histórico de usuários indisponível"),
-        ("Duração média", _fmt_duration(insights.get("avg_duration")) if insights.get("sessions_available") else "-", "Tempo médio por sessão"),
-        ("Páginas/sessão", f"{insights.get('pages_per_session', 0):.2f}" if insights.get("sessions_available") else "-", "Profundidade média"),
-        ("Taxa de rejeição", _fmt_pct(insights.get("bounce_rate")) if insights.get("sessions_available") else "-", "Sessões de baixa interação"),
+        ("Sessões", insights.get("sessions") if metrics_ok else "-", estimated_meta if metrics_ok else "Sem dados no período"),
+        ("Usuários", insights.get("users") if metrics_ok else "-", estimated_meta if metrics_ok else "Sem dados no período"),
+        ("Duração média", _fmt_duration(insights.get("avg_duration")) if metrics_ok else "-", estimated_meta if metrics_ok else "Sem dados no período"),
+        ("Páginas/sessão", f"{insights.get('pages_per_session', 0):.2f}" if metrics_ok else "-", estimated_meta if metrics_ok else "Sem dados no período"),
+        ("Taxa de rejeição", _fmt_pct(insights.get("bounce_rate")) if metrics_ok else "-", estimated_meta if metrics_ok else "Sem dados no período"),
         ("Últimas 24h", insights.get("last_24h", 0), "Contagem móvel de pageviews"),
     ]
     starts = [("B", "D"), ("E", "G"), ("H", "J"), ("K", "M"), ("B", "D"), ("E", "G"), ("H", "J"), ("K", "M")]
@@ -130,7 +134,7 @@ def build_excel_report(insights: dict, site_name: str = "Portal Trivox") -> byte
     dash.merge_range("B13:M13", "EVOLUÇÃO DIÁRIA", fmt["section"])
 
     # Raw daily data first, for charts.
-    headers = ["Data", "Visualizações", "Sessões", "Usuários", "Duração média (s)", "Páginas/sessão", "Rejeição (%)"]
+    headers = ["Data", "Visualizações", "Sessões", "Usuários", "Duração média (s)", "Páginas/sessão", "Rejeição (%)", "Fonte"]
     daily.write_row(0, 0, headers, fmt["header"])
     for idx, row in enumerate(insights.get("daily_series", []), start=1):
         from datetime import datetime as _dt
@@ -142,8 +146,10 @@ def build_excel_report(insights: dict, site_name: str = "Portal Trivox") -> byte
         daily.write_number(idx, 4, row.get("avg_duration", 0), fmt["cell_num"])
         daily.write_number(idx, 5, row.get("pages_per_session", 0), fmt["cell"])
         daily.write_number(idx, 6, (row.get("bounce_rate", 0) or 0) / 100, fmt["cell_pct"])
+        daily.write(idx, 7, row.get("metric_source", "Medido"), fmt["estimate"] if row.get("metrics_estimated") else fmt["measured"])
     daily.set_column("A:A", 13)
     daily.set_column("B:G", 18)
+    daily.set_column("H:H", 13)
     daily.freeze_panes(1, 1)
     daily.autofilter(0, 0, max(1, len(insights.get("daily_series", []))), len(headers) - 1)
 
@@ -157,7 +163,7 @@ def build_excel_report(insights: dict, site_name: str = "Portal Trivox") -> byte
             "line": {"color": ACCENT, "width": 2.5},
             "marker": {"type": "circle", "size": 5, "border": {"color": ACCENT}, "fill": {"color": "#FFFFFF"}},
         })
-        if insights.get("sessions_available"):
+        if insights.get("session_metrics_available"):
             line.add_series({
                 "name": "Sessões",
                 "categories": ["Dados Diários", 1, 0, count, 0],
@@ -194,11 +200,18 @@ def build_excel_report(insights: dict, site_name: str = "Portal Trivox") -> byte
 
     note_text = (
         "Fonte: registros internos do Portal Trivox. Visualizações são pageviews gravados pelo servidor e podem incluir repetições/robôs. "
-        "Sessões, usuários, duração e rejeição usam o rastreamento de AnalyticsSession quando disponível. "
         "Os gráficos do Excel exibem valores ao passar o mouse sobre os pontos."
     )
-    if insights.get("session_data_partial"):
-        note_text += f" O histórico de sessões começa em {insights['session_first_day'].strftime('%d/%m/%Y')}; o período selecionado contém dados parciais para essas métricas."
+    if insights.get("metrics_estimated"):
+        model = insights.get("estimation_model", {})
+        note_text += (
+            f" Nos {insights.get('estimated_days_count', 0)} dia(s) sem rastreamento de sessão, as métricas são ESTIMADAS e identificadas na aba Dados Diários. "
+            f"Modelo usado: {model.get('pages_per_session', 1.62):.2f} pág./sessão, {model.get('sessions_per_user', 1.22):.2f} sessões/usuário, "
+            f"{_fmt_duration(model.get('avg_duration', 138))} de duração média e {model.get('bounce_rate', 64.0):.1f}% de rejeição. "
+            "Quando existem dados medidos, o modelo é calibrado por eles."
+        )
+    else:
+        note_text += " Sessões, usuários, duração e rejeição são métricas medidas pelo rastreamento interno."
     dash.merge_range("B45:M47", note_text, fmt["note"])
     dash.set_row(44, 20)
     dash.set_row(45, 20)
@@ -235,7 +248,7 @@ def build_excel_report(insights: dict, site_name: str = "Portal Trivox") -> byte
         acquisition.write_number(i, 2, int(row[1] or 0), fmt["cell_num"])
     dev_row = max(16, len(insights.get("top_referrers", [])) + 4)
     acquisition.write_row(dev_row, 0, ["Dispositivo", "Sessões", "%"], fmt["header"])
-    total_sessions = max(1, int(insights.get("sessions") or 0))
+    total_sessions = max(1, int(insights.get("measured_sessions") or 0))
     for i, (device, value) in enumerate(insights.get("devices", {}).items(), start=1):
         acquisition.write(dev_row + i, 0, device, fmt["cell"])
         acquisition.write_number(dev_row + i, 1, int(value or 0), fmt["cell_num"])
@@ -294,14 +307,16 @@ def build_pdf_report(insights: dict, site_name: str = "Portal Trivox") -> bytes:
     ]))
     story += [title_box, Spacer(1, 7)]
 
+    metrics_ok = insights.get("session_metrics_available")
+    metric_meta = "ESTIMADO" if insights.get("metrics_estimated") else "Medido"
     kpis = [
         ("VISUALIZAÇÕES", _fmt_int(insights.get("total")), _delta_label(insights.get("delta"))),
         ("PÁGINAS", _fmt_int(insights.get("distinct_pages")), "URLs distintas"),
-        ("SESSÕES", _fmt_int(insights.get("sessions")) if insights.get("sessions_available") else "-", "Rastreamento interno"),
-        ("USUÁRIOS", _fmt_int(insights.get("users")) if insights.get("sessions_available") else "-", "Visitantes identificados"),
-        ("DURAÇÃO MÉDIA", _fmt_duration(insights.get("avg_duration")) if insights.get("sessions_available") else "-", "Por sessão"),
-        ("PÁGINAS/SESSÃO", f"{insights.get('pages_per_session', 0):.2f}" if insights.get("sessions_available") else "-", "Profundidade"),
-        ("REJEIÇÃO", _fmt_pct(insights.get("bounce_rate")) if insights.get("sessions_available") else "-", "Baixa interação"),
+        ("SESSÕES", _fmt_int(insights.get("sessions")) if metrics_ok else "-", metric_meta if metrics_ok else "Sem dados"),
+        ("USUÁRIOS", _fmt_int(insights.get("users")) if metrics_ok else "-", metric_meta if metrics_ok else "Sem dados"),
+        ("DURAÇÃO MÉDIA", _fmt_duration(insights.get("avg_duration")) if metrics_ok else "-", metric_meta if metrics_ok else "Sem dados"),
+        ("PÁGINAS/SESSÃO", f"{insights.get('pages_per_session', 0):.2f}" if metrics_ok else "-", metric_meta if metrics_ok else "Sem dados"),
+        ("REJEIÇÃO", _fmt_pct(insights.get("bounce_rate")) if metrics_ok else "-", metric_meta if metrics_ok else "Sem dados"),
         ("ÚLTIMAS 24H", _fmt_int(insights.get("last_24h")), "Pageviews"),
     ]
     cards = []
@@ -322,30 +337,35 @@ def build_pdf_report(insights: dict, site_name: str = "Portal Trivox") -> bytes:
     story += [kpi_table, Spacer(1, 8), Paragraph("EVOLUÇÃO DIÁRIA", styles["section"]), Spacer(1, 3)]
 
     # Compact table is more reliable than drawing a chart in PDF and keeps all values auditable.
-    daily_rows = [["Data", "Visualizações", "Sessões", "Usuários", "Duração média", "Pág./sessão", "Rejeição"]]
+    daily_rows = [["Data", "Visualizações", "Sessões", "Usuários", "Duração média", "Pág./sessão", "Rejeição", "Fonte"]]
     series = insights.get("daily_series", [])
     # PDF stays readable: use up to 31 most recent daily rows on the overview page.
     for row in series[-31:]:
         daily_rows.append([
             row.get("label_short", ""),
             _fmt_int(row.get("pageviews")),
-            _fmt_int(row.get("sessions")) if insights.get("sessions_available") else "-",
-            _fmt_int(row.get("users")) if insights.get("sessions_available") else "-",
-            _fmt_duration(row.get("avg_duration")) if insights.get("sessions_available") else "-",
-            f"{row.get('pages_per_session', 0):.2f}" if insights.get("sessions_available") else "-",
-            _fmt_pct(row.get("bounce_rate")) if insights.get("sessions_available") else "-",
+            _fmt_int(row.get("sessions")) if metrics_ok else "-",
+            _fmt_int(row.get("users")) if metrics_ok else "-",
+            _fmt_duration(row.get("avg_duration")) if metrics_ok else "-",
+            f"{row.get('pages_per_session', 0):.2f}" if metrics_ok else "-",
+            _fmt_pct(row.get("bounce_rate")) if metrics_ok else "-",
+            row.get("metric_source", "Medido") if metrics_ok else "-",
         ])
-    daily_table = Table(daily_rows, repeatRows=1, colWidths=[30*mm, 35*mm, 30*mm, 30*mm, 38*mm, 35*mm, 34*mm])
+    daily_table = Table(daily_rows, repeatRows=1, colWidths=[24*mm, 31*mm, 26*mm, 26*mm, 34*mm, 31*mm, 31*mm, 25*mm])
     daily_table.setStyle(_pdf_table_style())
     story += [daily_table, Spacer(1, 8)]
 
     note = "Visualizações são pageviews registrados pelo servidor e podem incluir repetições/robôs. "
-    if insights.get("sessions_available"):
+    if insights.get("metrics_estimated"):
+        model = insights.get("estimation_model", {})
+        note += (
+            f"Nos {insights.get('estimated_days_count', 0)} dia(s) sem rastreamento de sessão, sessões, usuários, duração, páginas/sessão e rejeição são ESTIMADOS. "
+            f"Modelo: {model.get('pages_per_session', 1.62):.2f} pág./sessão; {model.get('sessions_per_user', 1.22):.2f} sessões/usuário; "
+            f"{_fmt_duration(model.get('avg_duration', 138))} de duração média; {model.get('bounce_rate', 64.0):.1f}% de rejeição. "
+            "Quando há dados medidos, eles calibram o modelo."
+        )
+    elif insights.get("sessions_available"):
         note += "Sessões, usuários, duração e rejeição usam o rastreamento interno de sessões."
-        if insights.get("session_data_partial"):
-            note += f" O histórico de sessões começa em {insights['session_first_day'].strftime('%d/%m/%Y')}, portanto essas métricas são parciais neste intervalo."
-    else:
-        note += "Sessões e visitantes únicos estão indisponíveis neste histórico."
     story += [Paragraph(note, styles["small"]), PageBreak()]
 
     story += [Paragraph("CONTEÚDO MAIS ACESSADO", styles["section"]), Spacer(1, 4)]

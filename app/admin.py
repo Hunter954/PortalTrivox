@@ -1189,14 +1189,14 @@ def insights_page():
         output = io.StringIO()
         writer = csv.writer(output, delimiter=";")
         headers = ["Data (America/Sao_Paulo)", "Visualizações"]
-        if insights.get("sessions_available"):
-            headers += ["Sessões", "Usuários", "Duração média (s)", "Páginas por sessão", "Taxa de rejeição (%)"]
+        if insights.get("session_metrics_available"):
+            headers += ["Sessões", "Usuários", "Duração média (s)", "Páginas por sessão", "Taxa de rejeição (%)", "Origem das métricas"]
         writer.writerow(headers)
         for day in insights["daily_series"]:
             row = [day["iso"], day["pageviews"]]
-            if insights.get("sessions_available"):
+            if insights.get("session_metrics_available"):
                 row += [day.get("sessions", 0), day.get("users", 0), day.get("avg_duration", 0),
-                        day.get("pages_per_session", 0), day.get("bounce_rate", 0)]
+                        day.get("pages_per_session", 0), day.get("bounce_rate", 0), day.get("metric_source", "Medido")]
             writer.writerow(row)
         filename = f"trivox-relatorio-{insights['start_date']}-{insights['end_date']}.csv"
         return Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8",
@@ -1213,7 +1213,7 @@ def insights_page():
                         headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
 
     metric_chart = _build_chart_data(insights["daily_series"], "pageviews")
-    sessions_chart = _build_chart_data(insights["daily_series"], "sessions") if insights.get("sessions_available") else None
+    sessions_chart = _build_chart_data(insights["daily_series"], "sessions") if insights.get("session_metrics_available") else None
 
     return render_template(
         "admin/insights.html",

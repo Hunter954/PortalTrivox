@@ -321,3 +321,16 @@ body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFo
 .analytics-footnote{display:flex;gap:10px;padding:13px 15px;border-radius:14px;background:#f6f8f9;color:#66747b;font-size:12px;line-height:1.5;margin-bottom:8px}
 @media(max-width:1100px){.analytics-kpi-grid{grid-template-columns:repeat(2,1fr)}.analytics-main-grid{grid-template-columns:1fr}.analytics-side-stack{grid-template-columns:1fr 1fr}.analytics-content-grid{grid-template-columns:1fr}.analytics-toolbar{align-items:flex-start;flex-direction:column}}
 @media(max-width:680px){.analytics-kpi-grid{grid-template-columns:1fr}.analytics-side-stack{grid-template-columns:1fr}.analytics-toolbar{padding:20px}.analytics-export-group{width:100%}.analytics-export-group .btn{flex:1}.device-grid{grid-template-columns:1fr}.analytics-chart-panel{padding:16px}.analytics-actions{align-items:stretch;flex-direction:column}}
+
+/* Analytics: identificação explícita de métricas modeladas */
+.estimate-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  padding: .14rem .42rem;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, .10);
+  color: #9a5b00;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
