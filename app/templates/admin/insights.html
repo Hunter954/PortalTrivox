@@ -1,142 +1,145 @@
 {% extends 'admin/layout.html' %}
-{% block admin_title %}Estatísticas{% endblock %}
-{% block page_title %}Estatísticas do site{% endblock %}
-{% block page_subtitle %}Visualizações registradas, evolução diária e matérias mais acessadas.{% endblock %}
+{% block admin_title %}Analytics{% endblock %}
+{% block page_title %}Visão geral de tráfego{% endblock %}
+{% block page_subtitle %}Dashboard analítico com audiência, comportamento, conteúdo e exportação profissional.{% endblock %}
 {% block admin_content %}
-{% macro number(value) %}{{ '{:,}'.format(value).replace(',', '.') }}{% endmacro %}
-<div class="alert alert-info">
-  <strong>Histórico de visualizações do site</strong>
-  <div>Acessos registrados pelo servidor, incluindo repetições e possíveis robôs. Não representam visitantes únicos nem os números do Google Analytics.</div>
-  <small>Sessões e visitantes únicos: indisponíveis neste histórico. Datas no horário de Brasília.</small>
-</div>
-<section class="stats-grid">
-  <article class="stat-card">
-    <span>Visualizações no período</span><strong>{{ number(insights.total) }}</strong>
-    <small>{% if insights.delta is not none %}{{ '%+.1f'|format(insights.delta) }}% vs. período anterior{% else %}Sem base para comparação percentual{% endif %}</small>
-    <small class="d-block">Período anterior: {{ number(insights.previous_total) }}</small>
-  </article>
-  <article class="stat-card"><span>Páginas acessadas no período</span><strong>{{ number(insights.distinct_pages) }}</strong><small>Endereços diferentes visitados</small></article>
-  <article class="stat-card"><span>Visualizações totais</span><strong>{{ number(insights.all_total) }}</strong><small>{% if insights.first_day %}Histórico desde {{ insights.first_day.strftime('%d/%m/%Y') }}{% else %}Nenhuma visualização registrada{% endif %}</small></article>
-  <article class="stat-card"><span>Últimas 24 horas</span><strong>{{ number(insights.last_24h) }}</strong><small>Contagem móvel, independente do filtro</small></article>
+{% macro number(value) %}{{ '{:,}'.format(value or 0).replace(',', '.') }}{% endmacro %}
+{% macro duration(value) %}{% set h=(value or 0)//3600 %}{% set m=((value or 0)%3600)//60 %}{% set s=(value or 0)%60 %}{% if h %}{{ '%02d:%02d:%02d'|format(h,m,s) }}{% else %}{{ '%02d:%02d'|format(m,s) }}{% endif %}{% endmacro %}
+
+<section class="analytics-toolbar panel-card">
+  <div class="analytics-toolbar__title">
+    <div class="analytics-eyebrow">TRAFFIC OVERVIEW</div>
+    <h2>{{ site_name }}</h2>
+    <p>{{ insights.start_date.strftime('%d/%m/%Y') }} até {{ insights.end_date.strftime('%d/%m/%Y') }} · horário de Brasília</p>
+  </div>
+  <form class="insights-filter-form" method="get">
+    <div><label for="insightsFrom">De</label><input id="insightsFrom" class="form-control" type="date" min="2000-01-01" max="{{ today.isoformat() }}" name="from" value="{{ insights.start_date.isoformat() }}"></div>
+    <div><label for="insightsTo">Até</label><input id="insightsTo" class="form-control" type="date" min="2000-01-01" max="{{ today.isoformat() }}" name="to" value="{{ insights.end_date.isoformat() }}"></div>
+    <button class="btn btn-dark" type="submit"><i class="bi bi-arrow-repeat"></i> Atualizar</button>
+  </form>
 </section>
 
-<section class="panel-card insights-chart-card">
-  <div class="panel-head insights-chart-head">
-    <div>
-      <h2>Relatório visual</h2>
-      <p>Escolha as datas para consultar as visualizações salvas.</p>
-    </div>
-    <form class="insights-filter-form" method="get">
-      <div>
-        <label for="insightsFrom">De</label>
-        <input id="insightsFrom" class="form-control" type="date" min="2000-01-01" max="{{ today.isoformat() }}" name="from" value="{{ insights.start_date.isoformat() }}">
-      </div>
-      <div>
-        <label for="insightsTo">Até</label>
-        <input id="insightsTo" class="form-control" type="date" min="2000-01-01" max="{{ today.isoformat() }}" name="to" value="{{ insights.end_date.isoformat() }}">
-      </div>
-      <button class="btn btn-dark" type="submit">Atualizar gráfico</button>
-    </form>
-  </div>
-
+<div class="analytics-actions">
   <div class="insights-metric-switcher">
     <a class="metric-pill" href="{{ url_for('admin.insights_page', from=last_30_start.isoformat(), to=today.isoformat()) }}">Últimos 30 dias</a>
     <a class="metric-pill" href="{{ url_for('admin.insights_page', from=month_start.isoformat(), to=today.isoformat()) }}">Este mês</a>
     {% if insights.first_day %}<a class="metric-pill" href="{{ url_for('admin.insights_page', from=insights.first_day.isoformat(), to=today.isoformat()) }}">Todo o histórico</a>{% endif %}
-    <a class="btn btn-outline-dark" href="{{ url_for('admin.insights_page', from=insights.start_date.isoformat(), to=insights.end_date.isoformat(), format='csv') }}">Baixar relatório diário (CSV)</a>
   </div>
-  {% if insights.total == 0 %}<p class="text-muted">Nenhuma visualização registrada no período selecionado. Experimente outras datas ou “Todo o histórico”.</p>{% endif %}
-  {% if insights.first_day and insights.start_date < insights.first_day %}<p class="text-muted">O histórico disponível começa em {{ insights.first_day.strftime('%d/%m/%Y') }}. Dias anteriores não têm registros disponíveis.</p>{% endif %}
+  <div class="analytics-export-group">
+    <a class="btn btn-success" href="{{ url_for('admin.insights_page', from=insights.start_date.isoformat(), to=insights.end_date.isoformat(), format='xlsx') }}"><i class="bi bi-file-earmark-excel"></i> Excel</a>
+    <a class="btn btn-danger" href="{{ url_for('admin.insights_page', from=insights.start_date.isoformat(), to=insights.end_date.isoformat(), format='pdf') }}"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+    <a class="btn btn-outline-dark" href="{{ url_for('admin.insights_page', from=insights.start_date.isoformat(), to=insights.end_date.isoformat(), format='csv') }}"><i class="bi bi-filetype-csv"></i> CSV</a>
+  </div>
+</div>
 
-  <div class="insights-chart-header-row">
-    <div>
-      <strong>{{ metric_label }}</strong>
-      <span>{{ insights.start_date.strftime('%d/%m/%Y') }} até {{ insights.end_date.strftime('%d/%m/%Y') }}</span>
+{% if not insights.sessions_available %}
+<div class="analytics-note"><i class="bi bi-info-circle"></i><span><strong>Pageviews disponíveis.</strong> Sessões, usuários, duração e rejeição estão indisponíveis neste histórico porque não há registros de sessões para o período.</span></div>
+{% elif insights.session_data_partial %}
+<div class="analytics-note analytics-note--warn"><i class="bi bi-exclamation-triangle"></i><span>As métricas de sessão são parciais neste intervalo. O rastreamento de sessões começa em <strong>{{ insights.session_first_day.strftime('%d/%m/%Y') }}</strong>.</span></div>
+{% endif %}
+
+<section class="analytics-kpi-grid">
+  <article class="analytics-kpi analytics-kpi--hero"><span>Visualizações</span><strong>{{ number(insights.total) }}</strong><small>{% if insights.delta is not none %}<b class="{{ 'up' if insights.delta >= 0 else 'down' }}">{{ '%+.1f'|format(insights.delta) }}%</b> vs. período anterior{% else %}Sem base de comparação{% endif %}</small></article>
+  <article class="analytics-kpi"><span>Páginas acessadas</span><strong>{{ number(insights.distinct_pages) }}</strong><small>URLs distintas</small></article>
+  <article class="analytics-kpi"><span>Sessões</span><strong>{% if insights.sessions_available %}{{ number(insights.sessions) }}{% else %}—{% endif %}</strong><small>{% if insights.sessions_available %}Visitas registradas{% else %}Sem histórico{% endif %}</small></article>
+  <article class="analytics-kpi"><span>Usuários</span><strong>{% if insights.sessions_available %}{{ number(insights.users) }}{% else %}—{% endif %}</strong><small>{% if insights.sessions_available %}Visitantes identificados{% else %}Sem histórico{% endif %}</small></article>
+  <article class="analytics-kpi"><span>Duração média</span><strong>{% if insights.sessions_available %}{{ duration(insights.avg_duration) }}{% else %}—{% endif %}</strong><small>Por sessão</small></article>
+  <article class="analytics-kpi"><span>Páginas / sessão</span><strong>{% if insights.sessions_available %}{{ '%.2f'|format(insights.pages_per_session) }}{% else %}—{% endif %}</strong><small>Profundidade média</small></article>
+  <article class="analytics-kpi"><span>Taxa de rejeição</span><strong>{% if insights.sessions_available %}{{ '%.1f'|format(insights.bounce_rate) }}%{% else %}—{% endif %}</strong><small>Baixa interação</small></article>
+  <article class="analytics-kpi"><span>Últimas 24 horas</span><strong>{{ number(insights.last_24h) }}</strong><small>Contagem móvel</small></article>
+</section>
+
+<section class="analytics-main-grid">
+  <article class="panel-card analytics-chart-panel">
+    <div class="analytics-card-head"><div><span class="analytics-eyebrow">TENDÊNCIA</span><h2>Visualizações por dia</h2></div><div class="analytics-chart-total">{{ number(insights.total) }}<small>pageviews</small></div></div>
+    <div class="insights-chart-wrap" id="insightsChartWrap">
+      <div class="chart-hover-tooltip" id="chartHoverTooltip" aria-hidden="true"><span class="chart-hover-date"></span><strong class="chart-hover-value"></strong></div>
+      <svg viewBox="0 0 {{ metric_chart.width }} {{ metric_chart.height }}" class="insights-svg-chart" role="img" aria-label="Gráfico de visualizações">
+        <defs><linearGradient id="chartAreaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#17a58c" stop-opacity=".25"/><stop offset="100%" stop-color="#17a58c" stop-opacity="0"/></linearGradient></defs>
+        {% for tick in metric_chart.y_grid %}<line x1="{{ metric_chart.pad_left }}" y1="{{ tick.y }}" x2="{{ metric_chart.width - metric_chart.pad_right }}" y2="{{ tick.y }}" class="chart-grid-line"></line><text x="{{ metric_chart.pad_left - 12 }}" y="{{ tick.y + 4 }}" text-anchor="end" class="chart-y-label">{{ tick.value }}</text>{% endfor %}
+        {% if metric_chart.polyline %}<polygon points="{{ metric_chart.pad_left }},{{ metric_chart.baseline }} {{ metric_chart.polyline }} {{ metric_chart.width - metric_chart.pad_right }},{{ metric_chart.baseline }}" class="chart-area"></polygon>{% endif %}
+        <polyline points="{{ metric_chart.polyline }}" class="chart-line"></polyline>
+        {% for point in metric_chart.circles %}<circle cx="{{ point.cx }}" cy="{{ point.cy }}" r="4.5" class="chart-point" data-label="{{ point.label }}" data-value="{{ point.value }}"></circle>{% endfor %}
+        {% for x_label in metric_chart.x_labels %}<text x="{{ x_label.x }}" y="{{ metric_chart.baseline + 24 }}" text-anchor="middle" class="chart-x-label">{{ x_label.label }}</text>{% endfor %}
+      </svg>
     </div>
-  </div>
+  </article>
 
-  <div class="insights-chart-wrap" id="insightsChartWrap">
-    <div class="chart-hover-tooltip" id="chartHoverTooltip" aria-hidden="true">
-      <span class="chart-hover-date"></span>
-      <strong class="chart-hover-value"></strong>
+  <aside class="analytics-side-stack">
+    <article class="panel-card analytics-summary-card"><span class="analytics-eyebrow">COMPARATIVO</span><h3>Período anterior</h3><strong>{{ number(insights.previous_total) }}</strong><p>visualizações no mesmo intervalo imediatamente anterior.</p></article>
+    <article class="panel-card analytics-summary-card"><span class="analytics-eyebrow">HISTÓRICO</span><h3>Total acumulado</h3><strong>{{ number(insights.all_total) }}</strong><p>{% if insights.first_day %}desde {{ insights.first_day.strftime('%d/%m/%Y') }}{% else %}sem visualizações registradas{% endif %}</p></article>
+  </aside>
+</section>
+
+<section class="analytics-content-grid">
+  <article class="panel-card">
+    <div class="analytics-card-head"><div><span class="analytics-eyebrow">CONTEÚDO</span><h2>Matérias mais acessadas</h2></div></div>
+    <div class="analytics-ranking">
+      {% set max_post = insights.top_posts[0].views if insights.top_posts else 1 %}
+      {% for post in insights.top_posts[:10] %}
+      <div class="analytics-rank-row"><span class="rank-index">{{ loop.index }}</span><div class="rank-main"><a href="{{ url_for('site.post', slug=post.slug) }}" target="_blank" rel="noopener">{{ post.title }}</a><div class="rank-bar"><i style="width:{{ ((post.views / max_post) * 100)|round(1) }}%"></i></div></div><strong>{{ number(post.views) }}</strong></div>
+      {% else %}<p class="text-muted">Nenhuma matéria com acessos no período.</p>{% endfor %}
     </div>
-    <svg viewBox="0 0 {{ metric_chart.width }} {{ metric_chart.height }}" class="insights-svg-chart" role="img" aria-label="Gráfico de {{ metric_label }}">
-      {% for tick in metric_chart.y_grid %}
-        <line x1="{{ metric_chart.pad_left }}" y1="{{ tick.y }}" x2="{{ metric_chart.width - metric_chart.pad_right }}" y2="{{ tick.y }}" class="chart-grid-line"></line>
-        <text x="{{ metric_chart.pad_left - 12 }}" y="{{ tick.y + 4 }}" text-anchor="end" class="chart-y-label">{{ tick.value }}</text>
-      {% endfor %}
+  </article>
 
-      <polyline points="{{ metric_chart.polyline }}" class="chart-line"></polyline>
-
-      {% for point in metric_chart.circles %}
-        <circle cx="{{ point.cx }}" cy="{{ point.cy }}" r="4.5" class="chart-point" data-label="{{ point.label }}" data-value="{{ point.value }}"></circle>
-      {% endfor %}
-
-      {% for x_label in metric_chart.x_labels %}
-        <text x="{{ x_label.x }}" y="{{ metric_chart.baseline + 24 }}" text-anchor="middle" class="chart-x-label">{{ x_label.label }}</text>
-      {% endfor %}
-    </svg>
-  </div>
+  <article class="panel-card">
+    <div class="analytics-card-head"><div><span class="analytics-eyebrow">PÁGINAS</span><h2>Rotas mais acessadas</h2></div></div>
+    <div class="analytics-ranking">
+      {% set max_page = insights.top_pages[0][1] if insights.top_pages else 1 %}
+      {% for path, views in insights.top_pages[:10] %}
+      <div class="analytics-rank-row"><span class="rank-index">{{ loop.index }}</span><div class="rank-main"><span class="rank-path">{{ path }}</span><div class="rank-bar"><i style="width:{{ ((views / max_page) * 100)|round(1) }}%"></i></div></div><strong>{{ number(views) }}</strong></div>
+      {% else %}<p class="text-muted">Nenhuma página com acessos no período.</p>{% endfor %}
+    </div>
+  </article>
 </section>
 
-<section class="panel-card mt-3">
-  <div class="panel-head"><div><h2>Matérias mais acessadas</h2><p>Até 20 matérias, considerando apenas o período selecionado.</p></div></div>
-  <div class="table-responsive"><table class="table admin-table">
-    <thead><tr><th>Matéria</th><th class="text-end">Visualizações</th></tr></thead>
-    <tbody>{% for post in insights.top_posts %}<tr><td><a href="{{ url_for('site.post', slug=post.slug) }}" target="_blank" rel="noopener">{{ post.title }}</a></td><td class="text-end">{{ number(post.views) }}</td></tr>{% else %}<tr><td colspan="2">Nenhuma matéria com acessos registrados neste período.</td></tr>{% endfor %}</tbody>
-  </table></div>
+{% if insights.sessions_available %}
+<section class="analytics-content-grid analytics-acquisition-grid">
+  <article class="panel-card">
+    <div class="analytics-card-head"><div><span class="analytics-eyebrow">AQUISIÇÃO</span><h2>Principais origens</h2></div></div>
+    <div class="analytics-ranking">
+      {% for ref, count in insights.top_referrers[:10] %}
+      <div class="analytics-rank-row"><span class="rank-index">{{ loop.index }}</span><div class="rank-main"><span class="rank-path">{{ ref or 'Direto / desconhecido' }}</span></div><strong>{{ number(count) }}</strong></div>
+      {% else %}<p class="text-muted">Sem dados de referência neste período.</p>{% endfor %}
+    </div>
+  </article>
+  <article class="panel-card">
+    <div class="analytics-card-head"><div><span class="analytics-eyebrow">TECNOLOGIA</span><h2>Dispositivos</h2></div></div>
+    <div class="device-grid">
+      {% for device, count in insights.devices.items() %}
+      <div class="device-card"><i class="bi {{ 'bi-phone' if device == 'Mobile' else ('bi-tablet' if device == 'Tablet' else ('bi-display' if device == 'Desktop' else 'bi-question-circle')) }}"></i><span>{{ device }}</span><strong>{{ number(count) }}</strong><small>{% if insights.sessions %}{{ '%.1f'|format((count / insights.sessions) * 100) }}%{% else %}0,0%{% endif %}</small></div>
+      {% endfor %}
+    </div>
+  </article>
 </section>
-<section class="panel-card mt-3">
-  <div class="panel-head"><div><h2>Páginas mais acessadas</h2><p>Inclui início, categorias, buscas e matérias. Até 20 endereços no período.</p></div></div>
-  <div class="table-responsive"><table class="table admin-table">
-    <thead><tr><th>Página</th><th class="text-end">Visualizações</th></tr></thead>
-    <tbody>{% for path, views in insights.top_pages %}<tr><td style="overflow-wrap:anywhere">{{ path }}</td><td class="text-end">{{ number(views) }}</td></tr>{% else %}<tr><td colspan="2">Nenhuma página com acessos registrados neste período.</td></tr>{% endfor %}</tbody>
-  </table></div>
-</section>
+{% endif %}
+
+<div class="analytics-footnote"><i class="bi bi-shield-check"></i><span>Fonte: dados internos do Portal Trivox. Pageviews podem incluir repetições e possíveis robôs. O Excel possui dashboard, abas analíticas e gráficos nativos com valores ao passar o mouse; o PDF entrega uma versão pronta para apresentação e impressão.</span></div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', function () {
-    const wrap = document.getElementById('insightsChartWrap');
-    const tooltip = document.getElementById('chartHoverTooltip');
-    if (!wrap || !tooltip) return;
-
-    const dateEl = tooltip.querySelector('.chart-hover-date');
-    const valueEl = tooltip.querySelector('.chart-hover-value');
-    const points = wrap.querySelectorAll('.chart-point');
-
-    function positionTooltip(event) {
-      const rect = wrap.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      tooltip.style.left = x + 'px';
-      tooltip.style.top = Math.max(16, y - 14) + 'px';
-    }
-
-    points.forEach(function (point) {
-      point.addEventListener('mouseenter', function (event) {
-        dateEl.textContent = point.dataset.label || '';
-        valueEl.textContent = (point.dataset.value || '0') + ' {{ metric_label }}';
-        tooltip.classList.add('is-visible');
-        point.classList.add('is-hovered');
-        positionTooltip(event);
-      });
-
-      point.addEventListener('mousemove', function (event) {
-        positionTooltip(event);
-      });
-
-      point.addEventListener('mouseleave', function () {
-        tooltip.classList.remove('is-visible');
-        point.classList.remove('is-hovered');
-      });
+document.addEventListener('DOMContentLoaded', function () {
+  const wrap = document.getElementById('insightsChartWrap');
+  const tooltip = document.getElementById('chartHoverTooltip');
+  if (!wrap || !tooltip) return;
+  const dateEl = tooltip.querySelector('.chart-hover-date');
+  const valueEl = tooltip.querySelector('.chart-hover-value');
+  const points = wrap.querySelectorAll('.chart-point');
+  function positionTooltip(event) {
+    const rect = wrap.getBoundingClientRect();
+    const x = event.clientX - rect.left + wrap.scrollLeft;
+    const y = event.clientY - rect.top;
+    tooltip.style.left = x + 'px'; tooltip.style.top = Math.max(20, y - 10) + 'px';
+  }
+  points.forEach(function (point) {
+    point.addEventListener('mouseenter', function (event) {
+      dateEl.textContent = point.dataset.label || '';
+      valueEl.textContent = (point.dataset.value || '0') + ' visualizações';
+      tooltip.classList.add('is-visible'); point.classList.add('is-hovered'); positionTooltip(event);
     });
-
-    wrap.addEventListener('mouseleave', function () {
-      tooltip.classList.remove('is-visible');
-      points.forEach(function (point) {
-        point.classList.remove('is-hovered');
-      });
-    });
+    point.addEventListener('mousemove', positionTooltip);
+    point.addEventListener('mouseleave', function () { tooltip.classList.remove('is-visible'); point.classList.remove('is-hovered'); });
   });
+  wrap.addEventListener('mouseleave', function () { tooltip.classList.remove('is-visible'); points.forEach(p => p.classList.remove('is-hovered')); });
+});
 </script>
 {% endblock %}

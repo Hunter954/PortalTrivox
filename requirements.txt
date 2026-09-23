@@ -13,3 +13,5 @@ email-validator==2.2.0
 beautifulsoup4==4.12.3
 lxml==5.2.2
 Pillow==10.4.0
+XlsxWriter==3.2.9
+reportlab==4.4.9

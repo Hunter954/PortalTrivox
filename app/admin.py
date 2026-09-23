@@ -21,6 +21,7 @@ from werkzeug.utils import secure_filename
 
 from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, post_categories, AnalyticsSession, WPImportJob, WPImportLog
 from .analytics import pageview_report
+from .report_exports import build_excel_report, build_pdf_report
 from .sync import download_external_image
 from .forms import LoginForm, AdSlotForm, CategoryForm, PostAdminForm
 from .art_generator import generate_trivox_variants
@@ -1183,17 +1184,36 @@ def insights_page():
     start_day = _parse_date_input(request.args.get("from"), start_default)
     end_day = _parse_date_input(request.args.get("to"), end_default)
     insights = pageview_report(start_day, end_day)
-    if request.args.get("format") == "csv":
+    export_format = (request.args.get("format") or "").strip().lower()
+    if export_format == "csv":
         output = io.StringIO()
         writer = csv.writer(output, delimiter=";")
-        writer.writerow(["Data (America/Sao_Paulo)", "Visualizações brutas de páginas (inclui repetições e possíveis robôs)"])
+        headers = ["Data (America/Sao_Paulo)", "Visualizações"]
+        if insights.get("sessions_available"):
+            headers += ["Sessões", "Usuários", "Duração média (s)", "Páginas por sessão", "Taxa de rejeição (%)"]
+        writer.writerow(headers)
         for day in insights["daily_series"]:
-            writer.writerow([day["iso"], day["pageviews"]])
-        filename = f"trivox-visualizacoes-{insights['start_date']}-{insights['end_date']}.csv"
+            row = [day["iso"], day["pageviews"]]
+            if insights.get("sessions_available"):
+                row += [day.get("sessions", 0), day.get("users", 0), day.get("avg_duration", 0),
+                        day.get("pages_per_session", 0), day.get("bounce_rate", 0)]
+            writer.writerow(row)
+        filename = f"trivox-relatorio-{insights['start_date']}-{insights['end_date']}.csv"
         return Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
+    if export_format in {"xlsx", "excel"}:
+        payload = build_excel_report(insights, _setting("site_name", current_app.config.get("SITE_NAME", "Portal Trivox")))
+        filename = f"trivox-dashboard-{insights['start_date']}-{insights['end_date']}.xlsx"
+        return Response(payload, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
+    if export_format == "pdf":
+        payload = build_pdf_report(insights, _setting("site_name", current_app.config.get("SITE_NAME", "Portal Trivox")))
+        filename = f"trivox-dashboard-{insights['start_date']}-{insights['end_date']}.pdf"
+        return Response(payload, content_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
 
     metric_chart = _build_chart_data(insights["daily_series"], "pageviews")
+    sessions_chart = _build_chart_data(insights["daily_series"], "sessions") if insights.get("sessions_available") else None
 
     return render_template(
         "admin/insights.html",
@@ -1203,6 +1223,7 @@ def insights_page():
         last_30_start=start_default,
         metric_label="Visualizações",
         metric_chart=metric_chart,
+        sessions_chart=sessions_chart,
         site_name=_setting("site_name", current_app.config.get("SITE_NAME", "Portal Trivox")),
         logo_url=_setting("logo_url", ""),
         favicon_url=_setting("favicon_url", ""),
