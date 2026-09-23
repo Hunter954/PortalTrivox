@@ -3,6 +3,7 @@
 {% block page_title %}Visão geral de tráfego{% endblock %}
 {% block page_subtitle %}Dashboard analítico com audiência, comportamento, conteúdo e exportação profissional.{% endblock %}
 {% block admin_content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/analytics-dashboard.css') }}">
 {% macro number(value) %}{{ '{:,}'.format(value or 0).replace(',', '.') }}{% endmacro %}
 {% macro duration(value) %}{% set h=(value or 0)//3600 %}{% set m=((value or 0)%3600)//60 %}{% set s=(value or 0)%60 %}{% if h %}{{ '%02d:%02d:%02d'|format(h,m,s) }}{% else %}{{ '%02d:%02d'|format(m,s) }}{% endif %}{% endmacro %}
 
