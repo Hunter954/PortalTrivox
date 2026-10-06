@@ -1,7 +1,7 @@
 {% extends 'admin/layout.html' %}
 {% block admin_title %}Mídia{% endblock %}
 {% block page_title %}Biblioteca de mídia{% endblock %}
-{% block page_subtitle %}Envie logos, capas e banners para o armazenamento persistente do Railway e use o link direto depois.{% endblock %}
+{% block page_subtitle %}Visualize os arquivos em miniaturas, abra a imagem original ou faça o download direto.{% endblock %}
 {% block admin_content %}
 <section class="panel-card">
   <div class="panel-head"><div><h2>Envio de arquivos</h2><p>Os arquivos ficam salvos em <code>{{ admin_media_root }}</code>.</p></div></div>
@@ -12,32 +12,40 @@
 </section>
 
 <section class="panel-card mt-4">
-  <div class="panel-head"><div><h2>Arquivos enviados</h2><p>Você pode copiar o link final e usar na logo, matérias e anúncios.</p></div></div>
-  <div class="table-responsive">
-    <table class="table admin-table align-middle">
-      <thead><tr><th>Arquivo</th><th>Link</th><th>Tamanho</th><th>Atualizado</th><th></th></tr></thead>
-      <tbody>
-        {% for file in files %}
-        <tr>
-          <td><strong>{{ file.name }}</strong></td>
-          <td><input class="form-control form-control-sm" readonly value="{{ request.host_url[:-1] }}{{ file.url }}"></td>
-          <td>{{ file.size_kb }} KB</td>
-          <td>{{ file.updated_at.strftime('%d/%m/%Y %H:%M') }}</td>
-          <td class="text-end">
-            <div class="d-flex gap-2 justify-content-end">
-              <a class="btn btn-sm btn-outline-dark" href="{{ file.url }}" target="_blank" rel="noopener">Abrir</a>
-              <form method="post" action="{{ url_for('admin.media_delete') }}" onsubmit="return confirm('Excluir este arquivo?');">
-                <input type="hidden" name="url" value="{{ file.url }}">
-                <button class="btn btn-sm btn-outline-danger" type="submit">Excluir</button>
-              </form>
-            </div>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" class="text-center text-muted py-5">Nenhum arquivo disponível ainda.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="panel-head"><div><h2>Arquivos enviados</h2><p>{{ files|length }} arquivo(s). Clique na miniatura para abrir ou use o botão para baixar o original.</p></div></div>
+
+  <div class="media-library-grid">
+    {% for file in files %}
+      <article class="media-library-card">
+        <a class="media-library-thumb" href="{{ file.url }}" target="_blank" rel="noopener" title="Abrir arquivo original">
+          {% if file.is_image %}
+            <img src="{{ file.url }}" alt="{{ file.name }}" loading="lazy">
+          {% else %}
+            <div class="media-library-file-icon"><i class="bi bi-file-earmark"></i></div>
+          {% endif %}
+        </a>
+
+        <div class="media-library-info">
+          <strong title="{{ file.name }}">{{ file.name }}</strong>
+          <small>{{ file.size_kb }} KB · {{ file.updated_at.strftime('%d/%m/%Y %H:%M') }}</small>
+        </div>
+
+        <div class="media-library-actions">
+          <a class="btn btn-sm btn-dark" href="{{ url_for('admin.media_download', relative_path=file.relative_path) }}">
+            <i class="bi bi-download"></i> Download
+          </a>
+          <a class="btn btn-sm btn-outline-dark" href="{{ file.url }}" target="_blank" rel="noopener" title="Abrir original">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+          <form method="post" action="{{ url_for('admin.media_delete') }}" onsubmit="return confirm('Excluir este arquivo?');">
+            <input type="hidden" name="url" value="{{ file.url }}">
+            <button class="btn btn-sm btn-outline-danger" type="submit" title="Excluir arquivo"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+      </article>
+    {% else %}
+      <div class="media-library-empty text-muted">Nenhum arquivo disponível ainda.</div>
+    {% endfor %}
   </div>
 </section>
 {% endblock %}

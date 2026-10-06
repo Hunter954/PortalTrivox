@@ -14,7 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 from urllib.parse import urlparse
 
-from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, abort, jsonify, Response
+from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, abort, jsonify, Response, send_file
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import func, desc, or_
 from werkzeug.utils import secure_filename
@@ -1393,13 +1393,36 @@ def media_library():
     root = _media_root()
     if root.exists():
         for p in sorted([item for item in root.rglob('*') if item.is_file()], key=lambda item: item.stat().st_mtime, reverse=True):
+            rel_path = p.relative_to(root).as_posix()
             files.append({
                 'name': p.name,
-                'url': f"{current_app.config['MEDIA_URL_PREFIX'].rstrip('/')}/{p.relative_to(root).as_posix()}",
+                'url': f"{current_app.config['MEDIA_URL_PREFIX'].rstrip('/')}/{rel_path}",
+                'relative_path': rel_path,
+                'is_image': p.suffix.lower() in {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg'},
                 'size_kb': max(1, round(p.stat().st_size / 1024)),
                 'updated_at': datetime.fromtimestamp(p.stat().st_mtime),
             })
     return render_template('admin/media_library.html', files=files, **_common_admin_context('media'))
+
+
+@admin_bp.get('/media/download/<path:relative_path>')
+@login_required
+def media_download(relative_path):
+    r = _require_admin()
+    if r:
+        return r
+
+    root = _media_root()
+    candidate = (root / relative_path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        abort(404)
+
+    if not candidate.exists() or not candidate.is_file():
+        abort(404)
+
+    return send_file(candidate, as_attachment=True, download_name=candidate.name)
 
 
 @admin_bp.post('/media/upload')
