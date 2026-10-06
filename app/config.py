@@ -1,8 +1,20 @@
 import os
 
+
+def _database_url():
+    url = os.getenv("DATABASE_URL", "sqlite:///dev.db")
+    # Railway/SQLAlchemy pode fornecer explicitamente o dialeto psycopg (v3),
+    # mas este projeto usa psycopg2-binary. Normalizamos para o driver instalado.
+    if url.startswith("postgresql+psycopg://"):
+        url = "postgresql+psycopg2://" + url[len("postgresql+psycopg://"):]
+    elif url.startswith("postgres://"):
+        url = "postgresql+psycopg2://" + url[len("postgres://"):]
+    return url
+
+
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///dev.db")
+    SQLALCHEMY_DATABASE_URI = _database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     WP_BASE_URL = os.getenv("WP_BASE_URL", "https://www.paranaatual.com.br").rstrip("/")
