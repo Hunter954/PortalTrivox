@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
 from html import unescape, escape
 from pathlib import Path
@@ -350,6 +350,28 @@ def _hub_token_is_valid() -> bool:
 def _published_posts_query():
     return Post.query.filter(Post.published_at.isnot(None), Post.published_at <= _now_brazil())
 
+def _home_calendar_date():
+    enabled = (_setting("home_calendar_enabled", "0") or "").strip().lower() in {"1", "true", "yes", "on", "sim"}
+    if not enabled:
+        return None
+    raw_date = (_setting("home_calendar_date", "") or "").strip()
+    if not raw_date:
+        return None
+    try:
+        return datetime.strptime(raw_date, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _home_posts_query(selected_day):
+    q = _published_posts_query()
+    if selected_day:
+        # Monta a home como se o dia selecionado fosse o "hoje":
+        # entram matérias publicadas até o fim daquela data, não apenas as do dia exato.
+        end = datetime.combine(selected_day, time.max)
+        q = q.filter(Post.published_at <= end)
+    return q
+
 def _track_view(post_id=None):
     try:
         pv = PageView(
@@ -541,6 +563,7 @@ def hub_posts_delete_api():
 @site_bp.get("/")
 def home():
     _track_view(None)
+    home_calendar_day = _home_calendar_date()
 
     def _post_identity(item):
         # Evita repetir a mesma matéria na home mesmo quando a importação criou
@@ -563,7 +586,7 @@ def home():
                 break
         return result
 
-    latest_candidates = (_published_posts_query()
+    latest_candidates = (_home_posts_query(home_calendar_day)
                          .order_by(desc(Post.published_at), desc(Post.id))
                          .limit(60).all())
     latest = _unique_posts(latest_candidates, limit=24)
@@ -575,7 +598,7 @@ def home():
         cat = Category.query.filter_by(slug=slug).first()
         if not cat:
             return None, []
-        q = (_published_posts_query().join(Post.categories)
+        q = (_home_posts_query(home_calendar_day).join(Post.categories)
              .filter(Category.id == cat.id))
         if exclude_ids:
             q = q.filter(~Post.id.in_(list(exclude_ids)))
@@ -627,7 +650,7 @@ def home():
 
     home_category_columns = []
     for category_item in configured_home_categories[:3]:
-        posts = (_published_posts_query().join(Post.categories)
+        posts = (_home_posts_query(home_calendar_day).join(Post.categories)
                  .filter(Category.id == category_item.id)
                  .order_by(desc(Post.published_at), desc(Post.id))
                  .limit(6).all())
@@ -652,7 +675,7 @@ def home():
 
     dark_posts = []
     if dark_category:
-        dark_posts = (_published_posts_query().join(Post.categories)
+        dark_posts = (_home_posts_query(home_calendar_day).join(Post.categories)
                       .filter(Category.id == dark_category.id)
                       .order_by(desc(Post.published_at), desc(Post.id))
                       .limit(4).all())
@@ -678,7 +701,7 @@ def home():
     ))
 
     for category_item in ordered_categories:
-        candidates = (_published_posts_query().join(Post.categories)
+        candidates = (_home_posts_query(home_calendar_day).join(Post.categories)
                       .filter(Category.id == category_item.id)
                       .order_by(desc(Post.published_at), desc(Post.id))
                       .limit(100).all())
@@ -714,7 +737,7 @@ def home():
     popular_map = {pid: c for pid, c in popular_ids if pid}
     popular_posts = []
     if popular_map:
-        posts = _published_posts_query().filter(Post.id.in_(list(popular_map.keys()))).all()
+        posts = _home_posts_query(home_calendar_day).filter(Post.id.in_(list(popular_map.keys()))).all()
         posts_by_id = {p.id: p for p in posts}
         popular_posts = [posts_by_id[pid] for pid, _ in popular_ids if pid in posts_by_id]
 

@@ -135,6 +135,8 @@ def _ensure_defaults():
         ("site_keywords", "Portal Trivox, notícias, Foz do Iguaçu, Oeste do Paraná, tríplice fronteira, turismo, política"),
         ("top_menu_category_ids", "[]"),
         ("home_featured_category_ids", "[]"),
+        ("home_calendar_enabled", "0"),
+        ("home_calendar_date", ""),
         ("hub_enabled", "0"),
         ("hub_site_key", ""),
         ("hub_receive_token", ""),

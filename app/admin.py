@@ -23,7 +23,7 @@ from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, pos
 from .analytics import pageview_report
 from .report_exports import build_excel_report, build_pdf_report
 from .sync import download_external_image
-from .forms import LoginForm, AdSlotForm, CategoryForm, PostAdminForm
+from .forms import LoginForm, AdSlotForm, CategoryForm, PostAdminForm, HomeCalendarForm
 from .art_generator import generate_trivox_variants
 from .video_generator import VideoGeneratorError, generate_trivox_reels_video
 from .wp_client import WPClient
@@ -1170,6 +1170,64 @@ def dashboard():
         media_files=media_files,
         **_common_admin_context("dashboard"),
     )
+
+
+@admin_bp.route("/calendario-home", methods=["GET", "POST"])
+@login_required
+def home_calendar_page():
+    r = _require_admin()
+    if r:
+        return r
+
+    # Publication timestamps in this portal use Brasília local time.
+    now = _now_brazil()
+    today = now.date()
+    selected_date = _parse_date_input(_setting("home_calendar_date", ""), today)
+    enabled = _setting_bool("home_calendar_enabled", False)
+    form = HomeCalendarForm()
+    if request.method == "GET":
+        form.home_calendar_enabled.data = enabled
+        form.home_calendar_date.data = selected_date
+    elif form.validate_on_submit():
+        requested_date = form.home_calendar_date.data
+        if form.home_calendar_enabled.data and not requested_date:
+            form.home_calendar_date.errors.append("Selecione uma data para ativar o calendário.")
+        elif requested_date and requested_date > today:
+            form.home_calendar_date.errors.append("Escolha hoje ou uma data anterior.")
+        else:
+            _save_setting("home_calendar_enabled", "1" if form.home_calendar_enabled.data else "0")
+            if requested_date:
+                _save_setting("home_calendar_date", requested_date.isoformat())
+            db.session.commit()
+            if form.home_calendar_enabled.data:
+                flash(f"Calendário Home ativado. A home exibirá notícias de {requested_date.strftime('%d/%m/%Y')} para trás.", "success")
+            else:
+                flash("Calendário Home desativado. A home voltou às notícias atuais.", "success")
+            return redirect(url_for("admin.home_calendar_page"))
+
+    end = min(datetime.combine(selected_date, time.max), now)
+    published = Post.query.filter(Post.published_at.isnot(None), Post.published_at <= end)
+    days_summary = []
+    for offset in range(14):
+        day = today - timedelta(days=offset)
+        start = datetime.combine(day, time.min)
+        day_end = min(datetime.combine(day, time.max), now)
+        count = Post.query.filter(Post.published_at >= start, Post.published_at <= day_end).count()
+        days_summary.append({"iso": day.isoformat(), "label": day.strftime("%d/%m/%Y"), "count": count})
+
+    return render_template(
+        "admin/home_calendar.html",
+        form=form,
+        enabled=enabled,
+        today_iso=today.isoformat(),
+        selected_date_label=selected_date.strftime("%d/%m/%Y"),
+        selected_posts=published.order_by(desc(Post.published_at), desc(Post.id)).limit(16).all(),
+        post_count=published.filter(Post.published_at >= datetime.combine(selected_date, time.min)).count(),
+        total_until_count=published.count(),
+        days_summary=days_summary,
+        home_url=url_for("site.home"),
+        **_common_admin_context("home_calendar"),
+    ), 400 if request.method == "POST" else 200
 
 
 @admin_bp.get("/insights")

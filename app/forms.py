@@ -6,6 +6,7 @@ from wtforms import (
     BooleanField,
     TextAreaField,
     SelectMultipleField,
+    DateField,
 )
 from wtforms.validators import DataRequired, Email, Length, Optional
 
@@ -13,6 +14,11 @@ from wtforms.validators import DataRequired, Email, Length, Optional
 class LoginForm(FlaskForm):
     email = StringField("Email", validators=[DataRequired(), Email(), Length(max=190)])
     password = PasswordField("Senha", validators=[DataRequired(), Length(min=4, max=200)])
+
+
+class HomeCalendarForm(FlaskForm):
+    home_calendar_enabled = BooleanField("Ativar Calendário Home")
+    home_calendar_date = DateField("Data limite das notícias", validators=[Optional()])
 
 
 class AdSlotForm(FlaskForm):
