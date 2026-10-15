@@ -38,7 +38,7 @@
             <i class="bi bi-box-arrow-up-right"></i>
           </a>
           <form method="post" action="{{ url_for('admin.media_delete') }}" onsubmit="return confirm('Excluir este arquivo?');">
-            <input type="hidden" name="url" value="{{ file.url }}">
+            <input type="hidden" name="url" value="{{ file.delete_url }}">
             <button class="btn btn-sm btn-outline-danger" type="submit" title="Excluir arquivo"><i class="bi bi-trash"></i></button>
           </form>
         </div>
@@ -48,4 +48,9 @@
     {% endfor %}
   </div>
 </section>
+<nav class="d-flex justify-content-between mt-3" aria-label="Paginação">
+{% if page > 1 %}<a class="btn btn-outline-dark" href="{{ url_for('admin.media_library', page=page-1) }}">Anterior</a>{% else %}<span></span>{% endif %}
+<span>Página {{ page }}</span>
+{% if has_next %}<a class="btn btn-outline-dark" href="{{ url_for('admin.media_library', page=page+1) }}">Próxima</a>{% else %}<span></span>{% endif %}
+</nav>
 {% endblock %}

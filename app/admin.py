@@ -16,7 +16,8 @@ from urllib.parse import urlparse
 
 from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, abort, jsonify, Response, send_file
 from flask_login import login_user, logout_user, login_required, current_user
-from sqlalchemy import func, desc, or_
+from sqlalchemy import func, desc, or_, case, distinct
+from sqlalchemy.orm import load_only, selectinload
 from werkzeug.utils import secure_filename
 
 from .models import db, User, AdSlot, SiteSetting, PageView, Post, Category, post_categories, AnalyticsSession, WPImportJob, WPImportLog
@@ -404,39 +405,20 @@ def _file_ext(filename: str) -> str:
 
 
 def _save_upload(file_storage, subdir: str = "general") -> str:
-    if not file_storage or not getattr(file_storage, "filename", ""):
-        return ""
-    ext = _file_ext(file_storage.filename) or ".bin"
-    day_dir = datetime.utcnow().strftime("%Y/%m/%d")
-    folder = _media_root() / subdir / day_dir
-    folder.mkdir(parents=True, exist_ok=True)
-    fname = f"{uuid4().hex}{ext}"
-    full_path = folder / fname
-    file_storage.save(full_path)
-    rel = full_path.relative_to(_media_root()).as_posix()
-    return f"{current_app.config['MEDIA_URL_PREFIX'].rstrip('/')}/{rel}"
+    if not file_storage or not getattr(file_storage, 'filename', ''):
+        return ''
+    from .media import save_upload
+    return save_upload(file_storage.stream, file_storage.filename, subdir)
 
 
-def _local_media_path_from_url(url: str) -> Path | None:
-    if not url:
-        return None
-    prefix = current_app.config["MEDIA_URL_PREFIX"].rstrip("/") + "/"
-    parsed = urlparse(url)
-    target_path = parsed.path or url
-    if not target_path.startswith(prefix):
-        return None
-    rel = target_path[len(prefix):].lstrip("/")
-    return _media_root() / rel
+def _local_media_path_from_url(url):
+    from .storage import local_path_from_url
+    return local_path_from_url(url)
 
 
-def _delete_local_media(url: str) -> None:
-    path = _local_media_path_from_url(url)
-    if path and path.exists() and path.is_file():
-        try:
-            path.unlink()
-        except Exception:
-            pass
-
+def _delete_local_media(url):
+    from .media import delete_media
+    delete_media(url)
 
 
 
@@ -533,34 +515,26 @@ def _analytics_stats(days: int = 30, start_date: date | None = None, end_date: d
     previous_start = current_start - timedelta(days=window_days)
     previous_end = current_start
 
-    current_sessions = AnalyticsSession.query.filter(
-        AnalyticsSession.created_at >= current_start,
-        AnalyticsSession.created_at < current_end,
-    ).all()
-    previous_sessions = AnalyticsSession.query.filter(
-        AnalyticsSession.created_at >= previous_start,
-        AnalyticsSession.created_at < previous_end,
-    ).all()
-
-    def summarize(items):
-        sessions = len(items)
-        pageviews = sum((item.pageviews or 0) for item in items)
-        total_users = len({item.visitor_id for item in items if item.visitor_id})
-        bounce_sessions = sum(1 for item in items if item.is_bounce)
-        new_users = len({item.visitor_id for item in items if item.is_new_user and item.visitor_id})
-        avg_duration = round(sum((item.duration_seconds or 0) for item in items) / sessions) if sessions else 0
-        bounce_rate = round((bounce_sessions / sessions) * 100, 1) if sessions else 0
+    def summarize(start, end):
+        valid_visitor = func.nullif(AnalyticsSession.visitor_id, "")
+        row = db.session.query(
+            func.count(AnalyticsSession.id),
+            func.coalesce(func.sum(AnalyticsSession.pageviews), 0),
+            func.count(distinct(valid_visitor)),
+            func.coalesce(func.sum(case((AnalyticsSession.is_bounce.is_(True), 1), else_=0)), 0),
+            func.count(distinct(case((AnalyticsSession.is_new_user.is_(True), valid_visitor)))),
+            func.coalesce(func.sum(AnalyticsSession.duration_seconds), 0),
+        ).filter(AnalyticsSession.created_at >= start, AnalyticsSession.created_at < end).one()
+        sessions, pageviews, users, bounces, new_users, duration = row
         return {
-            "sessions": sessions,
-            "pageviews": pageviews,
-            "avg_duration": avg_duration,
-            "total_users": total_users,
-            "bounce_rate": bounce_rate,
+            "sessions": sessions, "pageviews": int(pageviews), "total_users": users,
+            "avg_duration": round(duration / sessions) if sessions else 0,
+            "bounce_rate": round(bounces / sessions * 100, 1) if sessions else 0,
             "new_users": new_users,
         }
 
-    current = summarize(current_sessions)
-    previous = summarize(previous_sessions)
+    current = summarize(current_start, current_end)
+    previous = summarize(previous_start, previous_end)
     cards = []
     labels = {
         "sessions": "Sessions",
@@ -605,31 +579,23 @@ def _analytics_stats(days: int = 30, start_date: date | None = None, end_date: d
         .all()
     )
 
-    by_day = {}
+    daily_rows = db.session.query(
+        func.date(AnalyticsSession.created_at).label("day"),
+        func.count(AnalyticsSession.id),
+        func.coalesce(func.sum(AnalyticsSession.pageviews), 0),
+        func.count(distinct(func.nullif(AnalyticsSession.visitor_id, ""))),
+    ).filter(
+        AnalyticsSession.created_at >= current_start, AnalyticsSession.created_at < current_end,
+    ).group_by(func.date(AnalyticsSession.created_at)).all()
+    by_day = {str(row[0]): row[1:] for row in daily_rows}
+    daily_series = []
     for offset in range(window_days):
         day = start_day + timedelta(days=offset)
-        by_day[day] = {"sessions": 0, "pageviews": 0, "visitor_ids": set()}
-
-    for item in current_sessions:
-        item_day = item.created_at.date()
-        if item_day not in by_day:
-            continue
-        bucket = by_day[item_day]
-        bucket["sessions"] += 1
-        bucket["pageviews"] += int(item.pageviews or 0)
-        if item.visitor_id:
-            bucket["visitor_ids"].add(item.visitor_id)
-
-    daily_series = []
-    for day in sorted(by_day.keys()):
-        bucket = by_day[day]
+        sessions, pageviews, users = by_day.get(day.isoformat(), (0, 0, 0))
         daily_series.append({
-            "iso": day.isoformat(),
-            "label": day.strftime('%d/%m'),
-            "label_short": day.strftime('%d/%m'),
-            "sessions": bucket["sessions"],
-            "pageviews": bucket["pageviews"],
-            "total_users": len(bucket["visitor_ids"]),
+            "iso": day.isoformat(), "label": day.strftime('%d/%m'),
+            "label_short": day.strftime('%d/%m'), "sessions": sessions,
+            "pageviews": int(pageviews), "total_users": users,
         })
 
     return {
@@ -681,7 +647,7 @@ def _dashboard_stats():
 def _common_admin_context(section: str, **extra):
     data = {
         "section": section,
-        "stats": _dashboard_stats(),
+        "stats": _dashboard_stats() if section == "dashboard" else {},
     }
     data.update(extra)
     return data
@@ -707,15 +673,17 @@ def posts_list():
         return r
     term = (request.args.get('q') or '').strip()
     source = (request.args.get('source') or 'all').strip().lower()
-    q = Post.query
+    q = Post.query.options(load_only(Post.id, Post.title, Post.slug, Post.source, Post.published_at, Post.updated_at), selectinload(Post.categories))
     if term:
         q = q.filter(Post.title.ilike(f"%{term}%"))
     if source in {'local', 'wp', 'hub'}:
         q = q.filter(Post.source == source)
-    posts = q.order_by(desc(Post.published_at), desc(Post.updated_at), desc(Post.id)).all()
+    page = max(1, request.args.get('page', 1, type=int) or 1)
+    page_rows = q.order_by(desc(Post.published_at), desc(Post.updated_at), desc(Post.id)).offset((page - 1) * 40).limit(41).all()
+    posts = page_rows[:40]
     return render_template(
         'admin/posts_list.html',
-        posts=posts,
+        posts=posts, page=page, has_next=len(page_rows) > 40,
         term=term,
         source=source,
         now_brazil=_now_brazil(),
@@ -1389,20 +1357,10 @@ def media_library():
     r = _require_admin()
     if r:
         return r
-    files = []
-    root = _media_root()
-    if root.exists():
-        for p in sorted([item for item in root.rglob('*') if item.is_file()], key=lambda item: item.stat().st_mtime, reverse=True):
-            rel_path = p.relative_to(root).as_posix()
-            files.append({
-                'name': p.name,
-                'url': f"{current_app.config['MEDIA_URL_PREFIX'].rstrip('/')}/{rel_path}",
-                'relative_path': rel_path,
-                'is_image': p.suffix.lower() in {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg'},
-                'size_kb': max(1, round(p.stat().st_size / 1024)),
-                'updated_at': datetime.fromtimestamp(p.stat().st_mtime),
-            })
-    return render_template('admin/media_library.html', files=files, **_common_admin_context('media'))
+    from .media import list_media
+    page = max(1, request.args.get('page', 1, type=int) or 1)
+    files, has_next = list_media(page, 48)
+    return render_template('admin/media_library.html', files=files, page=page, has_next=has_next, **_common_admin_context('media'))
 
 
 @admin_bp.get('/media/download/<path:relative_path>')
@@ -1412,17 +1370,14 @@ def media_download(relative_path):
     if r:
         return r
 
-    root = _media_root()
-    candidate = (root / relative_path).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError:
+    from .media import resolve_media, local_path, content_type
+    target = resolve_media('/media/' + relative_path)
+    if target.startswith('https://'):
+        return redirect(target, code=302)
+    candidate = local_path(target.removeprefix('/media/'))
+    if not candidate.is_file():
         abort(404)
-
-    if not candidate.exists() or not candidate.is_file():
-        abort(404)
-
-    return send_file(candidate, as_attachment=True, download_name=candidate.name)
+    return send_file(candidate, as_attachment=True, download_name=candidate.name, mimetype=content_type(candidate.name))
 
 
 @admin_bp.post('/media/upload')
@@ -2266,73 +2221,79 @@ def _wa_slot_payload(slot: AdSlot) -> dict:
     }
 
 
-@admin_bp.post('/api/whatsapp-bot/generate-trivox-photo')
+def _bot_media_data():
+    return request.form.to_dict() if request.mimetype == 'multipart/form-data' else (request.get_json(silent=True) or {})
+
+
+def _bot_media_stream(data, kind):
+    from io import BytesIO
+    limit = current_app.config['VIDEO_MAX_BYTES'] if kind == 'video' else current_app.config['IMAGE_MAX_BYTES']
+    upload = request.files.get(kind)
+    if upload:
+        upload.stream.seek(0, 2)
+        size = upload.stream.tell()
+        upload.stream.seek(0)
+        if not size or size > limit:
+            raise ValueError('Arquivo vazio ou maior que o limite permitido')
+        return upload.stream, upload.filename or (kind + '.bin'), upload.mimetype
+    encoded = (data.get(kind + '_base64') or '').strip()
+    if encoded.lower().startswith('data:') and ',' in encoded:
+        encoded = encoded.split(',', 1)[1]
+    if not encoded or len(encoded) > ((limit + 2) // 3) * 4:
+        raise ValueError('Arquivo ausente ou maior que o limite permitido')
+    content = base64.b64decode(encoded, validate=True)
+    if len(content) > limit:
+        raise ValueError('Arquivo maior que o limite permitido')
+    return BytesIO(content), data.get(kind + '_filename') or (kind + '.jpg' if kind == 'image' else 'video.mp4'), data.get(kind + '_mimetype') or ('image/jpeg' if kind == 'image' else 'video/mp4')
+
+
+@admin_bp.route('/api/whatsapp-bot/generate-trivox-photo', methods=['POST', 'OPTIONS'])
 def whatsapp_generate_trivox_photo():
-    data = request.get_json(silent=True) or {}
+    if request.method == 'OPTIONS':
+        return '', 204, {'X-Media-Upload': 'multipart'}
+    data = _bot_media_data()
     if not _trivox_whatsapp_authorized(data):
-        return jsonify({'ok': False, 'message': 'Token do gerador do Portal Trivox inválido.'}), 401
+        return jsonify(ok=False, message='Token do gerador do Portal Trivox inválido.'), 401
     title = (data.get('title') or data.get('titulo') or '').strip()
-    image_b64 = (data.get('image_base64') or '').strip()
-    if not title or not image_b64:
-        return jsonify({'ok': False, 'message': 'Imagem e título são obrigatórios.'}), 400
+    if not title:
+        return jsonify(ok=False, message='Título é obrigatório.'), 400
     try:
-        if ',' in image_b64 and image_b64.lower().startswith('data:'):
-            _meta, image_b64 = image_b64.split(',', 1)
-        content = base64.b64decode(image_b64, validate=True)
-        if len(content) > 20 * 1024 * 1024:
-            return jsonify({'ok': False, 'message': 'A imagem excede o limite de 20 MB.'}), 413
-        folder = _media_root() / 'gerador' / 'trivox-manual-source'
-        folder.mkdir(parents=True, exist_ok=True)
-        ext = Path(data.get('image_filename') or 'foto.jpg').suffix.lower()
-        if ext not in {'.jpg', '.jpeg', '.png', '.webp', '.jfif'}:
-            ext = '.jpg'
-        source_path = folder / f'{uuid4().hex}{ext}'
-        source_path.write_bytes(content)
-        rel = source_path.relative_to(_media_root()).as_posix()
-        source_url = f"{current_app.config['MEDIA_URL_PREFIX'].rstrip('/')}/{rel}"
+        stream, name, _mime = _bot_media_stream(data, 'image')
+        try:
+            from .media import save_upload
+            source_url = save_upload(stream, name, 'gerador/trivox-manual-source')
+        finally:
+            stream.close()
         generated = generate_trivox_variants(title=title[:500], image_source=source_url)
-        base_url = request.host_url.rstrip('/')
         for item in generated:
             if (item.get('url') or '').startswith('/'):
-                item['url'] = base_url + item['url']
-        return jsonify({'ok': True, 'brand': 'trivox', 'images': generated})
-    except Exception as exc:
-        current_app.logger.exception('Falha ao gerar imagem padrão do Portal Trivox')
-        return jsonify({'ok': False, 'message': f'Não consegui gerar a imagem do Trivox: {str(exc)[:180]}'}), 500
+                item['url'] = request.host_url.rstrip('/') + item['url']
+        return jsonify(ok=True, brand='trivox', images=generated)
+    except (ValueError, OSError) as exc:
+        return jsonify(ok=False, message=str(exc)[:180]), 400
 
 
-@admin_bp.post('/api/whatsapp-bot/generate-trivox-video')
+@admin_bp.route('/api/whatsapp-bot/generate-trivox-video', methods=['POST', 'OPTIONS'])
 def whatsapp_generate_trivox_video():
-    data = request.get_json(silent=True) or {}
+    if request.method == 'OPTIONS':
+        return '', 204, {'X-Media-Upload': 'multipart'}
+    data = _bot_media_data()
     if not _trivox_whatsapp_authorized(data):
-        return jsonify({'ok': False, 'message': 'Token do gerador de vídeo do Portal Trivox inválido.'}), 401
-
+        return jsonify(ok=False, message='Token do gerador de vídeo do Portal Trivox inválido.'), 401
     title = (data.get('title') or data.get('titulo') or '').strip()
-    video_b64 = (data.get('video_base64') or '').strip()
-    if not title or not video_b64:
-        return jsonify({'ok': False, 'message': 'Vídeo e título são obrigatórios.'}), 400
-
+    if not title:
+        return jsonify(ok=False, message='Título é obrigatório.'), 400
     try:
-        if ',' in video_b64 and video_b64.lower().startswith('data:'):
-            _meta, video_b64 = video_b64.split(',', 1)
-        content = base64.b64decode(video_b64, validate=True)
-        max_bytes = int(current_app.config.get('VIDEO_MAX_BYTES', 80 * 1024 * 1024))
-        if len(content) > max_bytes:
-            return jsonify({'ok': False, 'message': f'O vídeo excede o limite de {max_bytes // (1024 * 1024)} MB.'}), 413
-
-        generated = generate_trivox_reels_video(
-            video_content=content,
-            title=title[:500],
-            filename_hint=data.get('video_filename') or 'video.mp4',
-        )
+        stream, name, _mime = _bot_media_stream(data, 'video')
+        try:
+            generated = generate_trivox_reels_video(video_stream=stream, title=title[:500], filename_hint=name)
+        finally:
+            stream.close()
         if (generated.get('url') or '').startswith('/'):
             generated['url'] = request.host_url.rstrip('/') + generated['url']
-        return jsonify({'ok': True, 'brand': 'trivox', 'videos': [generated]})
-    except VideoGeneratorError as exc:
-        return jsonify({'ok': False, 'message': str(exc)[:700]}), 400
-    except Exception as exc:
-        current_app.logger.exception('Falha ao gerar vídeo padrão do Portal Trivox')
-        return jsonify({'ok': False, 'message': f'Não consegui gerar o vídeo do Trivox: {str(exc)[:180]}'}), 500
+        return jsonify(ok=True, brand='trivox', videos=[generated])
+    except (VideoGeneratorError, ValueError) as exc:
+        return jsonify(ok=False, message=str(exc)[:700]), 400
 
 
 @admin_bp.post('/api/whatsapp-menu/action')

@@ -89,15 +89,16 @@ def test_admin_html_and_csv_agree_and_do_not_write(app):
     response = client.get("/admin/insights?from=2026-09-01&to=2026-09-02&metric=sessions")
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "Visualizações no período" in html
+    assert "Visualizações por dia" in html
     assert "Matéria &lt;teste&gt;" in html
-    assert "indisponíveis neste histórico" in html
+    assert "Métricas estimadas automaticamente" in html
     assert 'data-value="2"' in html
     response = client.get("/admin/insights?from=2026-09-01&to=2026-09-02&format=csv")
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
     rows = list(csv.reader(io.StringIO(response.data.decode("utf-8-sig")), delimiter=";"))
-    assert rows[1:] == [["2026-09-01", "2"], ["2026-09-02", "1"]]
+    assert [row[:2] for row in rows[1:]] == [["2026-09-01", "2"], ["2026-09-02", "1"]]
+    assert all(row[-1] == "Estimado" for row in rows[1:])
     assert PageView.query.count() == 6
     assert AnalyticsSession.query.count() == 0
 

@@ -213,7 +213,15 @@ def inject_site_globals():
 @site_bp.get("/media/<path:filename>")
 def media(filename):
     media_root = Path(current_app.config["MEDIA_ROOT"]).resolve()
-    return send_from_directory(media_root, filename)
+    from .media import resolve_media, content_type
+    from flask import redirect
+    original = '/media/' + filename
+    target = resolve_media(original)
+    if target != original:
+        return redirect(target, code=302)
+    response = send_from_directory(media_root, filename, max_age=86400, mimetype=content_type(filename))
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 
@@ -889,3 +897,9 @@ def search():
         pagination=pagination,
         ad_header=_get_ad("header_top"),
     )
+
+
+@site_bp.get('/health')
+def health():
+    from .media import r2_enabled
+    return jsonify(ok=True, memory_optimized=True, image_compression='webp-v1', media_upload='multipart', r2_enabled=r2_enabled())

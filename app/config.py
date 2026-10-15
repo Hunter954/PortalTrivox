@@ -9,13 +9,34 @@ def _database_url():
         url = "postgresql+psycopg2://" + url[len("postgresql+psycopg://"):]
     elif url.startswith("postgres://"):
         url = "postgresql+psycopg2://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg2://" + url[len("postgresql://"):]
     return url
+
+
+def _engine_options(database_url: str) -> dict:
+    options = {
+        "pool_pre_ping": True,
+        "pool_recycle": 280,
+    }
+
+    # Avoid hanging the whole Gunicorn worker for a long time when Railway
+    # private networking/Postgres is temporarily unavailable.
+    if database_url.startswith(("postgresql", "postgres://")):
+        options.update(pool_size=int(os.getenv("DB_POOL_SIZE", "4")),
+                       max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "1")),
+                       pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "10")))
+        options["connect_args"] = {"connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "5"))}
+
+    return options
+
 
 
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
     SQLALCHEMY_DATABASE_URI = _database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = _engine_options(SQLALCHEMY_DATABASE_URI)
 
     WP_BASE_URL = os.getenv("WP_BASE_URL", "https://www.paranaatual.com.br").rstrip("/")
     WP_PER_PAGE = int(os.getenv("WP_PER_PAGE", "20"))
@@ -38,3 +59,16 @@ class Config:
     WHATSAPP_SERVICE_TIMEOUT = int(os.getenv("WHATSAPP_SERVICE_TIMEOUT", "30"))
     PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
+
+    IMAGE_MAX_BYTES = int(os.getenv('IMAGE_MAX_BYTES', '15000000'))
+    IMAGE_MAX_PIXELS = int(os.getenv('IMAGE_MAX_PIXELS', '24000000'))
+    IMAGE_WEB_MAX_EDGE = int(os.getenv('IMAGE_WEB_MAX_EDGE', '1280'))
+    IMAGE_WEB_QUALITY = int(os.getenv('IMAGE_WEB_QUALITY', '68'))
+    FFMPEG_THREADS = int(os.getenv('FFMPEG_THREADS', '2'))
+    R2_ENDPOINT_URL = os.getenv('R2_ENDPOINT_URL', '').strip().rstrip('/')
+    R2_BUCKET = os.getenv('R2_BUCKET', '').strip()
+    R2_ACCESS_KEY_ID = os.getenv('R2_ACCESS_KEY_ID', '').strip()
+    R2_SECRET_ACCESS_KEY = os.getenv('R2_SECRET_ACCESS_KEY', '').strip()
+    R2_PUBLIC_URL = os.getenv('R2_PUBLIC_URL', '').strip().rstrip('/')
+    MEDIA_WORKER_ENABLED = os.getenv('MEDIA_WORKER_ENABLED', '1') == '1'
+    MEDIA_OPTIMIZE_LEGACY = os.getenv('MEDIA_OPTIMIZE_LEGACY', '0') == '1'

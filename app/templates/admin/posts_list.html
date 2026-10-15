@@ -28,4 +28,9 @@
     </table>
   </div>
 </section>
+<nav class="d-flex justify-content-between mt-3" aria-label="Paginação">
+{% if page > 1 %}<a class="btn btn-outline-dark" href="{{ url_for('admin.posts_list', page=page-1, q=term, source=source) }}">Anterior</a>{% else %}<span></span>{% endif %}
+<span>Página {{ page }}</span>
+{% if has_next %}<a class="btn btn-outline-dark" href="{{ url_for('admin.posts_list', page=page+1, q=term, source=source) }}">Próxima</a>{% else %}<span></span>{% endif %}
+</nav>
 {% endblock %}

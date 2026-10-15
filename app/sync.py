@@ -71,43 +71,9 @@ def _guess_extension(source_url: str, content_type: str = "") -> str:
     return ".jpg"
 
 
-def download_external_image(source_url: str | None, folder: str = "wp") -> str | None:
-    if not source_url:
-        return None
-    if source_url.startswith("/media/"):
-        return source_url
-
-    media_root = Path(current_app.config["MEDIA_ROOT"])
-    target_dir = media_root / folder / datetime.utcnow().strftime("%Y/%m")
-    target_dir.mkdir(parents=True, exist_ok=True)
-    last_error = None
-    response = None
-    for attempt in range(3):
-        try:
-            response = requests.get(
-                source_url,
-                timeout=(8, 25),
-                stream=True,
-                headers={"User-Agent": "Portal-Trivox-Image-Importer/1.0"},
-            )
-            response.raise_for_status()
-            break
-        except requests.RequestException as exc:
-            last_error = exc
-            if attempt < 2:
-                time.sleep(0.6 * (attempt + 1))
-    if response is None or not response.ok:
-        raise last_error or RuntimeError("Falha ao baixar imagem")
-
-    ext = _guess_extension(source_url, response.headers.get("Content-Type", ""))
-    filename = f"{uuid.uuid4().hex}{ext}"
-    target_path = target_dir / filename
-    with target_path.open("wb") as fh:
-        for chunk in response.iter_content(chunk_size=65536):
-            if chunk:
-                fh.write(chunk)
-    relative = target_path.relative_to(media_root).as_posix()
-    return _media_url(relative)
+def download_external_image(source_url, folder='wp'):
+    from .media import deferred_image
+    return deferred_image(source_url, folder)
 
 
 def localize_content_images(html: str | None, report: dict | None = None) -> str | None:
@@ -277,7 +243,22 @@ def sync_posts(client: WPClient, max_pages: int | None = None, per_page: int = 2
 
 def localize_existing_wp_images(limit: int | None = None) -> dict:
     posts_query = Post.query.filter(Post.source == "wp").order_by(Post.published_at.desc(), Post.id.desc())
-    posts = posts_query.limit(limit).all() if limit else posts_query.all()
+    def batches():
+        cursor = 0
+        remaining = limit
+        while remaining is None or remaining > 0:
+            size = min(50, remaining) if remaining is not None else 50
+            rows = Post.query.filter(Post.source == 'wp', Post.id > cursor).order_by(Post.id).limit(size).all()
+            if not rows:
+                break
+            for row in rows:
+                yield row
+            cursor = rows[-1].id
+            if remaining is not None:
+                remaining -= len(rows)
+            db.session.commit()
+            db.session.remove()
+    posts = batches()
     updated = featured_downloaded = content_updated = 0
     for post in posts:
         changed = False

@@ -11,7 +11,8 @@ from flask import current_app
 from PIL import Image, ImageDraw, ImageFilter
 
 from .art_generator import _asset_path, _load_font, _normalize_text, _text_bbox
-from .storage import key_from_media_url, save_bytes
+from .storage import key_from_media_url, save_stream
+from .resources import bounded_generation
 
 
 class VideoGeneratorError(Exception):
@@ -232,11 +233,14 @@ def _render_video_with_overlay(
         "-i", str(input_path),
         "-loop", "1",
         "-i", str(overlay_path),
+        "-filter_complex_threads", "1",
+        "-filter_threads", "1",
         "-filter_complex", filter_complex,
         "-map", "[v]",
         "-map", "0:a?",
         "-t", f"{output_duration:.3f}",
         "-c:v", "libx264",
+        "-threads", str(current_app.config["FFMPEG_THREADS"]),
         "-preset", "veryfast",
         "-crf", "22",
         "-pix_fmt", "yuv420p",
@@ -261,10 +265,11 @@ def _render_video_with_overlay(
         raise VideoGeneratorError(f"Falha no FFmpeg: {detail}")
 
 
+@bounded_generation
 def generate_trivox_reels_video(
-    *, video_content: bytes, title: str, filename_hint: str = "video.mp4"
+    *, video_content: bytes | None = None, video_stream=None, title: str, filename_hint: str = "video.mp4"
 ) -> dict[str, str]:
-    if not video_content:
+    if not video_content and video_stream is None:
         raise VideoGeneratorError("O vídeo recebido está vazio.")
     if not _normalize_text(title):
         raise VideoGeneratorError("O título é obrigatório.")
@@ -280,26 +285,33 @@ def generate_trivox_reels_video(
         input_path = tmp_dir / f"input{input_ext}"
         overlay_path = tmp_dir / "overlay.png"
         output_path = tmp_dir / "trivox-reels.mp4"
-        input_path.write_bytes(video_content)
+        import shutil
+        if video_stream is not None:
+            video_stream.seek(0, 2)
+            size = video_stream.tell()
+            video_stream.seek(0)
+            if not size or size > current_app.config['VIDEO_MAX_BYTES']:
+                raise VideoGeneratorError('Vídeo vazio ou maior que o limite permitido')
+            with input_path.open('wb') as target:
+                shutil.copyfileobj(video_stream, target, length=64 * 1024)
+        else:
+            if len(video_content) > current_app.config['VIDEO_MAX_BYTES']:
+                raise VideoGeneratorError('Vídeo maior que o limite permitido')
+            input_path.write_bytes(video_content)
 
         info = _probe_video(input_path)
         output_duration = min(float(info["duration"]), float(max_seconds))
-        generate_trivox_reels_overlay(title).save(overlay_path, "PNG")
+        with generate_trivox_reels_overlay(title) as overlay:
+            overlay.save(overlay_path, "PNG")
         _render_video_with_overlay(
             input_path=input_path,
             output_path=output_path,
             overlay_path=overlay_path,
             output_duration=output_duration,
         )
-        output = output_path.read_bytes()
-
-    filename = f"trivox-reels-{uuid.uuid4().hex}.mp4"
-    url = save_bytes(
-        output,
-        folder="gerador/video-generated",
-        filename_hint=filename,
-        content_type="video/mp4",
-    )
+        filename = f'trivox-reels-{uuid.uuid4().hex}.mp4'
+        with output_path.open('rb') as output:
+            url = save_stream(output, 'gerador/video-generated', filename, 'video/mp4')
     return {
         "key": "reels",
         "label": "Vídeo Reels",

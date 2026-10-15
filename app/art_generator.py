@@ -10,7 +10,7 @@ import re
 import uuid
 
 import requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from flask import current_app
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
@@ -97,15 +97,11 @@ def _save_bytes(content: bytes, folder: str, filename_hint: str = "file") -> str
     return save_bytes(content, folder=folder, filename_hint=filename_hint)
 
 
-def save_uploaded_image(upload: FileStorage | None, folder: str = "gerador/source") -> str:
+def save_uploaded_image(upload, folder='gerador/source'):
     if not upload or not upload.filename:
-        return ""
-    filename = secure_filename(upload.filename)
-    content = upload.read()
-    upload.stream.seek(0)
-    if not content:
-        return ""
-    return _save_bytes(content, folder=folder, filename_hint=filename)
+        return ''
+    from .storage import save_stream
+    return save_stream(upload.stream, folder, upload.filename)
 
 
 def _normalize_text(value: str | None) -> str:
@@ -217,40 +213,43 @@ def resolve_post_source(article_url: str) -> dict[str, str]:
     return resolved
 
 
-def _fetch_image(source: str) -> Image.Image | None:
-    url = (source or "").strip()
+def _decode_image(source):
+    with Image.open(source) as image:
+        if image.width * image.height > current_app.config['IMAGE_MAX_PIXELS']:
+            raise ArtGeneratorError('Imagem excede o limite de pixels permitido')
+        image.draft('RGB', (1920, 1920))
+        image.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
+        with ImageOps.exif_transpose(image) as oriented:
+            return oriented.convert('RGBA')
+
+
+def _fetch_image(source):
+    if isinstance(source, Image.Image):
+        return source.copy()
+    url = (source or '').strip()
     if not url:
         return None
-
-    local_path = _absolute_to_media_local(url)
-    if local_path and local_path.exists():
-        with Image.open(local_path) as image:
-            return image.convert("RGBA")
-
-    if url.startswith(current_app.config.get("MEDIA_URL_PREFIX", "/media").rstrip("/") + "/"):
-        content, _content_type, _name = open_media_bytes(url)
-        with Image.open(BytesIO(content)) as image:
-            return image.convert("RGBA")
-
-    if url.startswith("/") and Path(url).exists():
-        with Image.open(url) as image:
-            return image.convert("RGBA")
-
-    response = requests.get(url, timeout=25)
-    response.raise_for_status()
-    with Image.open(BytesIO(response.content)) as image:
-        return image.convert("RGBA")
+    local = _absolute_to_media_local(url)
+    if local and local.is_file():
+        if local.stat().st_size > current_app.config['IMAGE_MAX_BYTES']:
+            raise ArtGeneratorError('Imagem excede o limite permitido')
+        return _decode_image(local)
+    import tempfile
+    with tempfile.TemporaryFile() as temp:
+        with requests.get(url, stream=True, timeout=(4, 15)) as response:
+            response.raise_for_status()
+            size = 0
+            for chunk in response.iter_content(64 * 1024):
+                size += len(chunk)
+                if size > current_app.config['IMAGE_MAX_BYTES']:
+                    raise ArtGeneratorError('Imagem excede o limite permitido')
+                temp.write(chunk)
+        temp.seek(0)
+        return _decode_image(temp)
 
 
-def _cover_resize(image: Image.Image, size: tuple[int, int]) -> Image.Image:
-    dst_w, dst_h = size
-    src_w, src_h = image.size
-    scale = max(dst_w / src_w, dst_h / src_h)
-    new_size = (max(1, int(src_w * scale)), max(1, int(src_h * scale)))
-    resized = image.resize(new_size, Image.Resampling.LANCZOS)
-    x = (resized.width - dst_w) // 2
-    y = (resized.height - dst_h) // 2
-    return resized.crop((x, y, x + dst_w, y + dst_h))
+def _cover_resize(image, size):
+    return ImageOps.fit(image, size, method=Image.Resampling.LANCZOS)
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont:
@@ -434,7 +433,8 @@ def generate_art_image(title: str, image_source: str, variant: str, include_titl
         except Exception as exc:
             raise ArtGeneratorError(f"Não foi possível carregar a imagem informada: {exc}") from exc
         if background is not None:
-            canvas.alpha_composite(_cover_resize(background, (width, height)))
+            with background, _cover_resize(background, (width, height)) as photo:
+                canvas.alpha_composite(photo)
 
     fade_height = int(height * 0.38)
     fade_path = _asset_path("fadepop.png")
@@ -549,8 +549,8 @@ def generate_trivox_art_image(title: str, image_source: str, variant: str = "fee
         except Exception as exc:
             raise ArtGeneratorError(f"Não foi possível carregar a imagem informada: {exc}") from exc
         if background is not None:
-            photo = _cover_resize(background, (width, photo_height))
-            canvas.alpha_composite(photo, (0, header_height))
+            with background, _cover_resize(background, (width, photo_height)) as photo:
+                canvas.alpha_composite(photo, (0, header_height))
 
     # Título centralizado no rodapé branco.
     title_text = _normalize_text(title)
@@ -612,26 +612,20 @@ def generate_trivox_art_image(title: str, image_source: str, variant: str = "fee
     return canvas
 
 
-def generate_trivox_variants(*, title: str, image_source: str) -> list[dict[str, str]]:
-    """Portal Trivox envia somente a arte Feed Instagram 1080x1440 para o grupo do WhatsApp."""
-    image = generate_trivox_art_image(title=title, image_source=image_source, variant="feed")
-    filename = f"trivox-feed-{uuid.uuid4().hex}.png"
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    url = save_bytes(
-        buffer.getvalue(),
-        folder="gerador/trivox-generated",
-        filename_hint=filename,
-        content_type="image/png",
-    )
-    return [{
-        "key": "feed",
-        "label": "Feed Instagram",
-        "size": "1080x1440",
-        "url": url,
-        "download_key": key_from_media_url(url) or f"gerador/trivox-generated/{filename}",
-        "download_name": filename,
-    }]
+def generate_trivox_variants(*, title, image_source):
+    from .resources import generation_slot
+    from .storage import save_stream
+    with generation_slot():
+        image = generate_trivox_art_image(title=title, image_source=image_source, variant='feed')
+        filename = f'trivox-feed-{uuid.uuid4().hex}.png'
+        try:
+            with BytesIO() as buffer:
+                image.save(buffer, format='PNG')
+                url = save_stream(buffer, 'gerador/trivox-generated', filename, 'image/png')
+        finally:
+            image.close()
+        return [dict(key='feed', label='Feed Instagram', size='1080x1440', url=url,
+            download_key=key_from_media_url(url), download_name=filename)]
 
 
 def build_generator_payload(
@@ -673,24 +667,28 @@ def build_generator_payload(
     }
 
 
-def generate_variants(*, title: str, image_source: str, include_title: bool, category_text: str) -> list[dict[str, str]]:
-    results: list[dict[str, str]] = []
-
-    for key, spec in VARIANT_SPECS.items():
-        image = generate_art_image(title=title, image_source=image_source, variant=key, include_title=include_title, category_text=category_text)
-        filename = f"arte-{key}-{uuid.uuid4().hex}.png"
-        buffer = BytesIO()
-        image.convert("RGB").save(buffer, format="PNG")
-        url = save_bytes(buffer.getvalue(), folder="gerador/generated", filename_hint=filename, content_type="image/png")
-        results.append(
-            {
-                "key": key,
-                "label": spec["label"],
-                "size": f"{spec['width']}x{spec['height']}",
-                "url": url,
-                "download_key": key_from_media_url(url) or f"gerador/generated/{filename}",
-                "download_name": filename,
-            }
-        )
-
+def generate_variants(*, title, image_source, include_title, category_text, variants=None):
+    from .resources import generation_slot
+    from .storage import save_stream
+    selected = set(VARIANT_SPECS) if variants is None else set(variants)
+    results = []
+    with generation_slot():
+        source = _fetch_image(image_source) if image_source else None
+        try:
+            for key, spec in VARIANT_SPECS.items():
+                if key not in selected:
+                    continue
+                image = generate_art_image(title=title, image_source=source, variant=key, include_title=include_title, category_text=category_text)
+                filename = f'arte-{key}-{uuid.uuid4().hex}.png'
+                try:
+                    with BytesIO() as buffer, image.convert('RGB') as rgb:
+                        rgb.save(buffer, format='PNG')
+                        url = save_stream(buffer, 'gerador/generated', filename, 'image/png')
+                finally:
+                    image.close()
+                results.append(dict(key=key, label=spec['label'], size=f"{spec['width']}x{spec['height']}", url=url,
+                    download_key=key_from_media_url(url), download_name=filename))
+        finally:
+            if source is not None:
+                source.close()
     return results

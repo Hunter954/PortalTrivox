@@ -2,7 +2,7 @@
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func
+from sqlalchemy import func, case, distinct
 
 from .models import db, PageView, Post, AnalyticsSession
 
@@ -90,38 +90,44 @@ def pageview_report(start_day=None, end_day=None):
             AnalyticsSession.created_at >= start,
             AnalyticsSession.created_at < end,
         )
-        session_rows = session_q.all()
-        measured_sessions = len(session_rows)
-        measured_users = len({row.visitor_id for row in session_rows if row.visitor_id})
-        new_users = len({row.visitor_id for row in session_rows if row.is_new_user and row.visitor_id})
-        total_duration = sum((row.duration_seconds or 0) for row in session_rows)
+        visitor = func.nullif(AnalyticsSession.visitor_id, '')
+        totals = session_q.with_entities(func.count(AnalyticsSession.id), func.count(distinct(visitor)),
+            func.count(distinct(case((AnalyticsSession.is_new_user.is_(True), visitor)))),
+            func.coalesce(func.sum(AnalyticsSession.duration_seconds), 0),
+            func.coalesce(func.sum(AnalyticsSession.pageviews), 0),
+            func.coalesce(func.sum(case((AnalyticsSession.is_bounce.is_(True), 1), else_=0)), 0)).one()
+        measured_sessions, measured_users, new_users, total_duration, total_session_pageviews, measured_bounces = totals
         measured_avg_duration = round(total_duration / measured_sessions) if measured_sessions else 0
-        total_session_pageviews = sum((row.pageviews or 0) for row in session_rows)
         measured_pages_per_session = round(total_session_pageviews / measured_sessions, 2) if measured_sessions else 0.0
-        measured_bounces = sum(1 for row in session_rows if row.is_bounce)
-        measured_bounce_rate = round((measured_bounces / measured_sessions) * 100, 1) if measured_sessions else 0.0
-
-        ref_counts = {}
-        for row in session_rows:
-            local_day = row.created_at.replace(tzinfo=timezone.utc).astimezone(REPORT_TZ).date()
-            session_counts[local_day] = session_counts.get(local_day, 0) + 1
-            session_users.setdefault(local_day, set()).add(row.visitor_id)
-            session_duration[local_day] = session_duration.get(local_day, 0) + (row.duration_seconds or 0)
-            session_pageviews[local_day] = session_pageviews.get(local_day, 0) + (row.pageviews or 0)
-            session_bounces[local_day] = session_bounces.get(local_day, 0) + (1 if row.is_bounce else 0)
-            ref = (row.referrer or '').strip()
-            ref_counts[ref] = ref_counts.get(ref, 0) + 1
-
-            ua = (row.user_agent or '').lower()
-            if any(token in ua for token in ('ipad', 'tablet', 'kindle')):
-                devices['Tablet'] += 1
-            elif any(token in ua for token in ('mobi', 'android', 'iphone', 'ipod')):
-                devices['Mobile'] += 1
-            elif ua:
-                devices['Desktop'] += 1
-            else:
-                devices['Outro'] += 1
-        top_referrers = sorted(ref_counts.items(), key=lambda item: (-item[1], item[0]))[:20]
+        measured_bounce_rate = round(measured_bounces / measured_sessions * 100, 1) if measured_sessions else 0.0
+        if db.engine.dialect.name == 'sqlite':
+            # Keep timezone/DST behavior identical in SQLite tests/local installs.
+            conn = db.session.connection().connection.driver_connection
+            conn.create_function('report_local_day', 1, lambda value: datetime.fromisoformat(value).replace(tzinfo=timezone.utc).astimezone(REPORT_TZ).date().isoformat())
+            local_day_expr = func.report_local_day(AnalyticsSession.created_at)
+        else:
+            local_day_expr = func.date(func.timezone('America/Sao_Paulo', func.timezone('UTC', AnalyticsSession.created_at)))
+        daily = session_q.with_entities(local_day_expr, func.count(AnalyticsSession.id),
+            func.count(distinct(AnalyticsSession.visitor_id)), func.sum(AnalyticsSession.duration_seconds),
+            func.sum(AnalyticsSession.pageviews), func.sum(case((AnalyticsSession.is_bounce.is_(True), 1), else_=0))
+        ).group_by(local_day_expr).all()
+        for stamp, sessions, users, duration, pageviews, bounces in daily:
+            day = date.fromisoformat(stamp) if isinstance(stamp, str) else stamp
+            session_counts[day] = sessions
+            session_users[day] = users
+            session_duration[day] = duration or 0
+            session_pageviews[day] = pageviews or 0
+            session_bounces[day] = bounces or 0
+        ref = func.trim(func.coalesce(AnalyticsSession.referrer, ''))
+        top_referrers = session_q.with_entities(ref, func.count(AnalyticsSession.id)).group_by(ref).order_by(func.count(AnalyticsSession.id).desc(), ref).limit(20).all()
+        ua = func.lower(func.coalesce(AnalyticsSession.user_agent, ''))
+        def has_any(tokens):
+            from sqlalchemy import or_
+            return or_(*(ua.like('%' + token + '%') for token in tokens))
+        device = case((has_any(('ipad', 'tablet', 'kindle')), 'Tablet'),
+            (has_any(('mobi', 'android', 'iphone', 'ipod')), 'Mobile'), (ua != '', 'Desktop'), else_='Outro')
+        for name, count in session_q.with_entities(device, func.count(AnalyticsSession.id)).group_by(device).all():
+            devices[name] = count
 
     # Prefer ratios learned from measured data when it exists. If there is no
     # measured history, use the conservative baseline agreed for this dashboard.
@@ -165,7 +171,7 @@ def pageview_report(start_day=None, end_day=None):
             day_duration = session_duration.get(day, 0)
             day_spv = session_pageviews.get(day, 0)
             day_bounces = session_bounces.get(day, 0)
-            day_users = len(session_users.get(day, set()))
+            day_users = session_users.get(day, 0)
             day_avg_duration = round(day_duration / day_sessions) if day_sessions else 0
             day_pps = round(day_spv / day_sessions, 2) if day_sessions else 0.0
             day_bounce = round((day_bounces / day_sessions) * 100, 1) if day_sessions else 0.0

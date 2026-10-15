@@ -221,16 +221,18 @@ def _ensure_starter_content():
     db.session.commit()
 
 
-def _auto_sync_loop(app: Flask):
-    with app.app_context():
-        client = WPClient(app.config["WP_BASE_URL"])
-        while True:
+def _auto_sync_loop(app):
+    while True:
+        with app.app_context():
             try:
+                client = WPClient(app.config['WP_BASE_URL'])
                 sync_categories(client)
-                sync_posts(client, max_pages=None, per_page=app.config["WP_PER_PAGE"], download_images=True)
+                sync_posts(client, max_pages=None, per_page=app.config['WP_PER_PAGE'], download_images=True)
             except Exception:
-                pass
-            time.sleep(app.config["AUTO_SYNC_INTERVAL"])
+                app.logger.warning('Falha temporária no espelho; nova tentativa agendada')
+            finally:
+                db.session.remove()
+        time.sleep(app.config['AUTO_SYNC_INTERVAL'])
 
 
 def create_app():
@@ -277,4 +279,8 @@ def create_app():
         t = threading.Thread(target=_auto_sync_loop, args=(app,), daemon=True)
         t.start()
 
+    from .resources import install_resource_guards
+    from .media import init_media
+    install_resource_guards(app)
+    init_media(app)
     return app

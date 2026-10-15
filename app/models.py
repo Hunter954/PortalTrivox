@@ -185,3 +185,27 @@ class AnalyticsSession(db.Model):
     is_new_user = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+class MediaAsset(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    hidden = db.Column(db.Boolean, default=False, nullable=False)
+    # Original URL is retained as a stable redirect, including old /media paths.
+    source_key = db.Column(db.String(64), unique=True, nullable=False)
+    source_url = db.Column(db.Text, nullable=False)
+    local_path = db.Column(db.String(1000), nullable=True)
+    public_url = db.Column(db.Text, nullable=True)
+    size_bytes = db.Column(db.BigInteger, default=0, nullable=False)
+    original_bytes = db.Column(db.BigInteger, default=0, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class MediaTask(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(20), nullable=False)
+    target = db.Column(db.String(1000), nullable=False)
+    task_key = db.Column(db.String(64), unique=True, nullable=False)
+    attempts = db.Column(db.Integer, default=0, nullable=False)
+    available_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    state = db.Column(db.String(20), default='pending', nullable=False, index=True)
+    error = db.Column(db.String(100), nullable=True)

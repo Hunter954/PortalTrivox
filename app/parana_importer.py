@@ -22,8 +22,18 @@ class ImportCandidate:
 
 
 def _get(url: str) -> requests.Response:
-    response = requests.get(url, headers=HEADERS, timeout=30)
+    response = requests.get(url, headers=HEADERS, timeout=30, stream=True)
     response.raise_for_status()
+    content = bytearray()
+    try:
+        for chunk in response.iter_content(64 * 1024):
+            content.extend(chunk)
+            if len(content) > 2_000_000:
+                raise ValueError('Página excede o limite permitido')
+    finally:
+        response.close()
+    response._content = bytes(content)
+    response._content_consumed = True
     return response
 
 
@@ -212,24 +222,6 @@ def parse_article(url: str) -> dict:
     }
 
 
-def save_image_locally(image_url: str, slug: str) -> str:
-    if not image_url:
-        return ''
-    response = _get(image_url)
-    content_type = response.headers.get('Content-Type', '').split(';')[0].strip().lower()
-    ext = mimetypes.guess_extension(content_type) or Path(urlparse(image_url).path).suffix or '.jpg'
-    if ext == '.jpe':
-        ext = '.jpg'
-    safe_slug = slugify(slug) or 'imagem'
-    media_root = Path(current_app.config['MEDIA_ROOT']).resolve()
-    target_dir = media_root / 'imported'
-    target_dir.mkdir(parents=True, exist_ok=True)
-    name = f'{safe_slug}{ext}'
-    target = target_dir / name
-    i = 2
-    while target.exists():
-        target = target_dir / f'{safe_slug}-{i}{ext}'
-        i += 1
-    target.write_bytes(response.content)
-    prefix = current_app.config.get('MEDIA_URL_PREFIX', '/media').rstrip('/')
-    return f'{prefix}/imported/{target.name}'
+def save_image_locally(image_url, slug):
+    from .media import deferred_image
+    return deferred_image(image_url, 'imported')
