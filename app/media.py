@@ -228,7 +228,8 @@ def remote_image(url, folder='imported'):
         key = unquote(local_url.removeprefix(base)) if local_url.startswith(base) else None
     if key is not None:
         canonical = _asset('/media/' + key)
-        _remember(url, key, count, canonical.public_url if canonical else None)
+        _remember(url, key, count, canonical.public_url if canonical else None,
+                  size_bytes=canonical.size_bytes if canonical else 0)
     return local_url
 
 
