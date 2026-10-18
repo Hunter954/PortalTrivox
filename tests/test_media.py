@@ -21,23 +21,45 @@ def enable_r2(app):
     app.config.update(R2_ENDPOINT_URL='https://r2.example', R2_BUCKET='bucket', R2_ACCESS_KEY_ID='test', R2_SECRET_ACCESS_KEY='test', R2_PUBLIC_URL='https://images.example')
 
 
-def test_new_upload_is_compressed_and_deduplicated_without_waiting_for_r2(app, monkeypatch):
+def test_new_upload_goes_directly_to_r2_and_deduplicates(app, monkeypatch):
     enable_r2(app)
-    remote = Mock(side_effect=AssertionError('network during publication'))
-    monkeypatch.setattr(media, 'r2_client', remote)
+    sent = {}
+    remote = Mock()
+    def upload(stream, bucket, key, **kwargs):
+        sent.update(body=stream.read(), key=key, mime=kwargs['ExtraArgs']['ContentType'])
+    remote.upload_fileobj.side_effect = upload
+    monkeypatch.setattr(media, 'r2_client', lambda: remote)
+    def head(*args, **kwargs):
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.headers = {'Content-Length': str(len(sent['body']))}
+        return response
+    monkeypatch.setattr(media.requests, 'head', head)
     with app.app_context():
         with photo() as stream:
             original = len(stream.getbuffer())
             first = media.save_upload(stream, 'photo.jpg', 'posts')
             stream.seek(0)
             assert media.save_upload(stream, 'photo.jpg', 'posts') == first
-        path = media.local_path(first.removeprefix('/media/'))
-        assert path.stat().st_size < original * .3
-        with Image.open(path) as image:
+        assert first == 'https://images.example/' + sent['key']
+        assert len(sent['body']) < original * .3
+        with Image.open(BytesIO(sent['body'])) as image:
             assert image.format == 'WEBP' and image.size == (1280, 823)
+        assert sent['mime'] == 'image/webp'
+        assert not media.local_path(sent['key'].removeprefix('portaltrivox/')).exists()
         assert MediaAsset.query.count() == 1
-        assert MediaTask.query.count() == 1
-        assert not remote.called
+        assert MediaTask.query.count() == 0
+
+
+def test_failed_r2_upload_never_writes_to_local_volume(app, monkeypatch):
+    enable_r2(app)
+    monkeypatch.setattr(media, 'r2_client', lambda: Mock(upload_fileobj=Mock(side_effect=OSError('r2 unavailable'))))
+    with app.app_context():
+        with pytest.raises(OSError, match='r2 unavailable'):
+            media.save_upload(photo(), 'failed.jpg', 'posts')
+        assert not list(media.root().rglob('*.*'))
+        assert MediaAsset.query.count() == 0
 
 
 def test_public_url_changes_only_after_verified_r2_copy_and_original_survives(app, client, monkeypatch):
@@ -68,8 +90,8 @@ def test_public_url_changes_only_after_verified_r2_copy_and_original_survives(ap
         head.headers = {'Content-Length': str(len(sent['body']))}
         media.upload_asset('posts/legacy.jpg')
         assert media.resolve_media('/media/posts/legacy.jpg').startswith('https://images.example/portaltrivox/')
-        assert len(sent['body']) < len(original) * .3
-        assert sent['args']['ExtraArgs']['ContentType'] == 'image/webp'
+        assert sent['body'] == original
+        assert sent['args']['ExtraArgs']['ContentType'] == 'image/jpeg'
         assert legacy.read_bytes() == original
         assert client.get('/media/posts/legacy.jpg').status_code == 302
 
@@ -105,7 +127,7 @@ def test_rollback_does_not_queue_unpublished_article(app):
         assert not Post.query.count()
 
 
-def test_legacy_aliases_choose_compressed_canonical_file_on_repeated_migration(app, monkeypatch):
+def test_legacy_migration_copies_originals_without_local_derivatives(app, monkeypatch):
     enable_r2(app)
     with app.app_context():
         original = photo().getvalue()
@@ -124,8 +146,10 @@ def test_legacy_aliases_choose_compressed_canonical_file_on_repeated_migration(a
         monkeypatch.setattr(media.requests, 'head', head)
         media.upload_asset('a.jpg')
         media.upload_asset('b.jpg')
-        assert all(len(item) < len(original) * .3 for item in sent)
-        assert media.resolve_media('/media/a.jpg') == media.resolve_media('/media/b.jpg')
+        assert sent == [original, original]
+        assert media.resolve_media('/media/a.jpg').startswith('https://images.example/portaltrivox/')
+        assert media.resolve_media('/media/b.jpg').startswith('https://images.example/portaltrivox/')
+        assert sorted(path.name for path in media.root().iterdir()) == ['a.jpg', 'b.jpg']
 
 
 def test_pixel_byte_limits_alpha_animation_and_orientation(app):
