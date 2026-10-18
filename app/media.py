@@ -70,10 +70,10 @@ def _asset(source):
     return db.session.execute(select(MediaAsset).where(MediaAsset.source_key == digest(source)).execution_options(populate_existing=True)).scalar_one_or_none()
 
 
-def _remember(source, relative, original_bytes=0, public_url=None):
+def _remember(source, relative, original_bytes=0, public_url=None, size_bytes=None):
     # Independent transaction: never commits an unfinished editorial request.
     table = MediaAsset.__table__
-    values = dict(source_key=digest(source), source_url=source, local_path=relative, size_bytes=local_path(relative).stat().st_size, original_bytes=original_bytes, updated_at=datetime.utcnow())
+    values = dict(source_key=digest(source), source_url=source, local_path=relative, size_bytes=size_bytes if size_bytes is not None else local_path(relative).stat().st_size, original_bytes=original_bytes, updated_at=datetime.utcnow())
     if public_url:
         values['public_url'] = public_url
     with db.engine.begin() as conn:
@@ -135,6 +135,25 @@ def save_stream(stream, filename, subdir='general', *, optimize_image=True):
             ext = Path(name).suffix.lower() or '.bin'
             safe_folder = re.sub(r'[^a-zA-Z0-9/_-]', '', subdir).strip('/') or 'general'
             relative = f'{safe_folder}/{hasher.hexdigest()}{ext}'
+            if r2_enabled():
+                from boto3.s3.transfer import TransferConfig
+                prepared.seek(0, 2)
+                size = prepared.tell()
+                prepared.seek(0)
+                key = 'portaltrivox/' + relative
+                r2_client().upload_fileobj(prepared, current_app.config['R2_BUCKET'], key,
+                    ExtraArgs={'ContentType': content_type(relative), 'CacheControl': 'public, max-age=31536000, immutable'},
+                    Config=TransferConfig(use_threads=False, max_concurrency=1))
+                public = current_app.config['R2_PUBLIC_URL'] + '/' + quote(key, safe='/')
+                with requests.head(public, timeout=(4, 10), allow_redirects=True) as response:
+                    response.raise_for_status()
+                    if int(response.headers.get('Content-Length', -1)) != size:
+                        raise ValueError('public_size_mismatch')
+                _remember('/media/' + relative, relative, original_size, public, size_bytes=size)
+                return public
+
+            if current_app.config.get('R2_BUCKET'):
+                raise RuntimeError('R2 configurado sem credenciais completas; upload local bloqueado')
             destination = local_path(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)
             if not destination.exists():
@@ -149,8 +168,6 @@ def save_stream(stream, filename, subdir='general', *, optimize_image=True):
                         Path(temp_name).unlink()
     url = '/media/' + relative
     _remember(url, relative, original_size)
-    if r2_enabled():
-        enqueue('asset', relative)
     return resolve_media(url)
 
 
@@ -255,6 +272,9 @@ def process_post(post_id):
 
 def _optimized_relative(relative):
     path = local_path(relative)
+    # Historical files are uploaded from their existing volume without creating another local copy.
+    if r2_enabled():
+        return relative
     # Generated social cards keep their exact dimensions and PNG representation.
     if (len(path.stem) == 64 or relative.startswith('gerador/') or path.suffix.lower() not in IMAGE_EXT):
         return relative
