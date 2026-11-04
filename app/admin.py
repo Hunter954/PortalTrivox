@@ -1,4 +1,6 @@
 import os
+import hmac
+import hashlib
 import re
 import shutil
 import json
@@ -14,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 from urllib.parse import urlparse
 
-from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, abort, jsonify, Response, send_file
+from flask import session, Blueprint, render_template, redirect, url_for, request, flash, current_app, abort, jsonify, Response, send_file
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import func, desc, or_, case, distinct
 from sqlalchemy.orm import load_only, selectinload
@@ -1085,6 +1087,10 @@ def inject_admin_helpers():
     return {"admin_media_root": current_app.config.get("MEDIA_ROOT", "/data/uploads")}
 
 
+from .recovery import register_recovery_routes
+register_recovery_routes(admin_bp, "trivox")
+
+
 @admin_bp.get("/login")
 def login():
     form = LoginForm()
@@ -1100,7 +1106,12 @@ def login_post():
             if not getattr(user, 'is_active', True):
                 flash('Este usuário está desativado. Fale com o administrador.', 'danger')
                 return render_template("admin/login.html", form=form)
+            owner_email = (os.getenv("ADMIN_EMAIL") or "").strip().lower()
+            if not user.whatsapp and user.email != owner_email:
+                flash('Peça ao administrador para cadastrar seu WhatsApp antes de entrar.', 'danger')
+                return render_template("admin/login.html", form=form)
             login_user(user)
+            session["admin_password_stamp"] = hmac.new(current_app.secret_key.encode(), user.password_hash.encode(), hashlib.sha256).hexdigest()
             return redirect(url_for("admin.dashboard"))
         flash("Email ou senha inválidos.", "danger")
     return render_template("admin/login.html", form=form)
@@ -1462,6 +1473,7 @@ def users_new():
         name = (request.form.get('name') or '').strip()
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
+        whatsapp = (request.form.get('whatsapp') or '').strip()
         is_admin = bool(request.form.get('is_admin'))
         is_active = bool(request.form.get('is_active'))
 
@@ -1495,6 +1507,7 @@ def users_edit(user_id):
         name = (request.form.get('name') or '').strip()
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
+        whatsapp = (request.form.get('whatsapp') or '').strip()
         is_admin = bool(request.form.get('is_admin'))
         is_active = bool(request.form.get('is_active'))
 
@@ -1510,6 +1523,7 @@ def users_edit(user_id):
             flash('Você não pode desativar seu próprio usuário.', 'danger')
         else:
             user_obj.name = name
+            user_obj.whatsapp = whatsapp or None
             user_obj.email = email
             user_obj.is_admin = is_admin
             user_obj.is_active = is_active
