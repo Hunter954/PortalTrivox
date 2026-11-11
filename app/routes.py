@@ -4,6 +4,7 @@ from html import unescape, escape
 from pathlib import Path
 import re
 import json
+import hashlib
 
 from flask import Blueprint, render_template, abort, request, current_app, send_from_directory, jsonify, make_response, url_for
 from sqlalchemy import desc, func, or_
@@ -43,6 +44,17 @@ AD_SLOT_CLASSNAMES = {
     "sidebar_2": "ad-slot-banner ad-slot-banner--square",
 }
 
+AD_ANALYTICS_PLACEMENTS = {
+    "header_top": "Topo / Cabeçalho",
+    "sidebar_1": "Topo / Lateral 1",
+    "sidebar_2": "Topo / Lateral 2",
+    "home_top_left": "Meio / Esquerda",
+    "home_top_right": "Meio / Direita",
+    "home_top": "Página inicial / Superior",
+    "home_mid": "Página inicial / Meio",
+    "home_bottom": "Página inicial / Rodapé",
+}
+
 
 def _render_ad_from_payload(slot_key: str, payload: dict) -> str:
     banners = payload.get("banners") or []
@@ -72,8 +84,16 @@ def _render_ad_from_payload(slot_key: str, payload: dict) -> str:
     for idx, item in enumerate(clean_banners):
         hidden = "" if idx == 0 else " hidden"
         aria_hidden = "false" if idx == 0 else "true"
+        # Identify the creative, not just the slot, so replacing an ad starts a
+        # separate history. No visitor identifiers or destination URLs go to GA4.
+        creative_id = "trivox-" + hashlib.sha256(json.dumps(item, sort_keys=True).encode()).hexdigest()[:20]
+        placement = AD_ANALYTICS_PLACEMENTS.get(slot_key, slot_key)
         slides_html.append(
             f'<a href="{escape(item["link"], quote=True)}" target="_blank" rel="noopener sponsored" '
+            f'data-ad-promotion-id="{creative_id}" '
+            f'data-ad-promotion-name="{escape(str(item["title"])[:100], quote=True)}" '
+            f'data-ad-slot="{escape(slot_key, quote=True)}" '
+            f'data-ad-placement="{escape(placement, quote=True)}" '
             f'class="ad-rotator__slide" data-ad-slide aria-hidden="{aria_hidden}"{hidden}>'
             f'<img src="{escape(item["image"], quote=True)}" alt="{escape(item["title"])}" loading="lazy"></a>'
         )

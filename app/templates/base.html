@@ -58,4 +58,5 @@
   <div class="shell copyright">{{ footer_copyright_text }}</div>
 </footer>
 <script src="{{ url_for('static', filename='js/site.js') }}"></script>
+{% if google_analytics_id %}<script defer src="{{ url_for('static', filename='js/ad-analytics.js', v='1') }}"></script>{% endif %}
 </body></html>
